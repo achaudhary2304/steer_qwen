@@ -132,8 +132,10 @@ same launcher to resume saved training checkpoints; completed stages are skipped
 Checkpoints include optimizer and RNG/sampler state. Dataset preparation is
 restarted if interrupted before its manifest is written. Capability gates stop
 training when validation KL exceeds 0.5 or NLL rises by more than 0.3 nats/token;
-annotation AUC below 0.5 also stops the supplied profiles. These are initial
-screening thresholds, not a claim of negligible capability loss.
+annotation AUC below 0.5 or unavailable AUC stops the debug profile only. In the
+100M profile, AUC remains a reported outcome and does not stop either training
+stage. These are initial screening thresholds, not a claim of negligible
+capability loss.
 
 The test reports contain teacher/base and retrofit perplexity, KL, annotation
 AUC/AP, named/unknown/residual logit shares, and post-hoc linear leakage probes.

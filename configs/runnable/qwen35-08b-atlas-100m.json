@@ -16,6 +16,6 @@
   "residual_scale": 0.75,
   "maximum_validation_kl": 0.5,
   "maximum_nll_increase": 0.3,
-  "minimum_validation_auc": 0.5,
+  "minimum_validation_auc": null,
   "cpu_threads": 8
 }

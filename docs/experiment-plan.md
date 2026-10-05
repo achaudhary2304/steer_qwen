@@ -63,7 +63,9 @@ would require additional label-propensity/prior assumptions and is not claimed
 by this implementation. The leakage loss uses an alternating linear adversary
 on unknown/residual pooled states; post-hoc probes audit the remaining leakage.
 
-Run the debug profile and inspect the validation gates before spending the full
-budget. Exact additive logit attribution is available at the final head;
+The 100M study reports concept AUC throughout without stopping on low or
+unavailable AUC; language-preservation gates remain active. It uses separate
+data/output directories from the debug study. Exact additive logit attribution
+is available at the final head;
 semantic purity, compositional steering, matched activation steering, and
 external capability benchmarks remain subsequent evaluations.
