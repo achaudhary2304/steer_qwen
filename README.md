@@ -27,6 +27,8 @@ tests/                tests for active code only
 `runs/`, downloaded data, checkpoints, and logs are deliberately ignored by
 Git. They are experiment artifacts, not source code.
 
+For a fresh computer, follow the [new-machine quickstart](docs/new-machine-quickstart.md).
+
 ## Active method
 
 ```text
