@@ -46,8 +46,8 @@ class RunConfig:
     residual_weight: float = 0.01
     leakage_weight: float = 0.01
     positive_weight: float = 4.0
-    maximum_validation_kl: float = 0.5
-    maximum_nll_increase: float = 0.3
+    maximum_validation_kl: float | None = 0.5
+    maximum_nll_increase: float | None = 0.3
     minimum_validation_auc: float | None = None
     cpu_threads: int = 4
 
@@ -76,6 +76,13 @@ def load_run_config(path):
     config = RunConfig(**json.loads(Path(path).read_text()))
     config.validate()
     return config
+
+
+def resume_configs_match(saved, current):
+    """Stop thresholds may change; training/data settings must remain identical."""
+    gates = {'maximum_validation_kl', 'maximum_nll_increase', 'minimum_validation_auc'}
+    return {k: v for k, v in saved.items() if k not in gates} == {
+        k: v for k, v in current.items() if k not in gates}
 
 
 def setup(cfg, corpus, stage):
@@ -198,8 +205,8 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
     order, cursor = torch.randperm(len(corpus.splits['train']), generator=generator), 0
     if resume:
         state = torch.load(output / 'last.pt', map_location='cpu', weights_only=True)
-        if state['config'] != asdict(cfg) or state['manifest_sha256'] != manifest_hash or state['stage'] != stage:
-            raise ValueError('Resume requires identical configuration, data, and stage')
+        if not resume_configs_match(state['config'], asdict(cfg)) or state['manifest_sha256'] != manifest_hash or state['stage'] != stage:
+            raise ValueError('Resume requires identical training configuration, data, and stage; only stop thresholds may change')
         module.load_state_dict(state['bottleneck'])
         for name, value in state['adapters'].items():
             adapters[name].data.copy_(value.to(cfg.device))
@@ -295,9 +302,13 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
             save_json(output / 'history.json', history)
             nll_increase = report['nll'] - report['base_nll']
             failures = []
-            if not math.isfinite(report['kl']) or report['kl'] > cfg.maximum_validation_kl:
+            if not math.isfinite(report['kl']):
+                failures.append('nonfinite validation KL')
+            elif cfg.maximum_validation_kl is not None and report['kl'] > cfg.maximum_validation_kl:
                 failures.append(f"validation KL {report['kl']:.6f} > {cfg.maximum_validation_kl}")
-            if not math.isfinite(nll_increase) or nll_increase > cfg.maximum_nll_increase:
+            if not math.isfinite(nll_increase):
+                failures.append('nonfinite validation NLL increase')
+            elif cfg.maximum_nll_increase is not None and nll_increase > cfg.maximum_nll_increase:
                 failures.append(f"validation NLL increase {nll_increase:.6f} > {cfg.maximum_nll_increase}")
             concept_auc = report['annotation_detection']['macro_auc']
             if cfg.minimum_validation_auc is not None:

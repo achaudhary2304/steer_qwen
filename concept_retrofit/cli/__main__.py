@@ -71,7 +71,7 @@ def main() -> None:
                 tokenizer=tokenizer, max_length=args.max_length,
                 training_token_budget=args.training_token_budget)
     else:
-        from concept_retrofit.pipeline import load_run_config, train_stage, evaluate_checkpoint, probe_layers
+        from concept_retrofit.pipeline import load_run_config, train_stage, evaluate_checkpoint, probe_layers, resume_configs_match
         from concept_retrofit.evaluation.steering import generate_examples
         if args.command == 'probe':
             probe_layers(args.data, load_run_config(args.config), args.out)
@@ -90,10 +90,12 @@ def main() -> None:
             from concept_retrofit.io import digest, save_json
             specification = {'config': asdict(cfg), 'manifest_sha256': digest(Path(args.data) / 'manifest.json')}
             if (out / 'run.json').exists():
-                if json.loads((out / 'run.json').read_text()) != specification:
+                previous = json.loads((out / 'run.json').read_text())
+                if previous['manifest_sha256'] != specification['manifest_sha256'] or not resume_configs_match(previous['config'], specification['config']):
                     raise ValueError('Output belongs to a different configuration or dataset')
                 if not args.resume:
                     raise FileExistsError('Pipeline already exists; use --resume')
+                save_json(out / 'run.json', specification)
             else:
                 save_json(out / 'run.json', specification)
             if not args.resume or not (out / 'layer-probes.json').exists():

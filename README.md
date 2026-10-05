@@ -130,12 +130,12 @@ budget. Increase sampling limits in the launcher if that happens.
 Logs are `runs/<profile>/prepare.log` and `runs/<profile>/pipeline.log`. Rerun the
 same launcher to resume saved training checkpoints; completed stages are skipped.
 Checkpoints include optimizer and RNG/sampler state. Dataset preparation is
-restarted if interrupted before its manifest is written. Capability gates stop
-training when validation KL exceeds 0.5 or NLL rises by more than 0.3 nats/token;
-annotation AUC below 0.5 or unavailable AUC stops the debug profile only. In the
-100M profile, AUC remains a reported outcome and does not stop either training
-stage. These are initial screening thresholds, not a claim of negligible
-capability loss.
+restarted if interrupted before its manifest is written. In the debug profile,
+validation KL above 0.5, NLL increase above 0.3 nats/token, or annotation AUC below
+0.5/unavailable stops training. The 100M profile reports these metrics without
+stopping on finite capability degradation or weak concept detection. Nonfinite
+loss/validation values still stop training. Resume permits changes to stop
+thresholds only; training settings and dataset identity must match.
 
 During residual warm-up, validation uses the current training residual scale,
 which is printed in each validation line. Final held-out reports use the target

@@ -63,11 +63,12 @@ and writes test reports plus generated steering examples. No laptop files are
 required. Neither the large data preparation nor 100M-token training has been
 completed on the laptop; small execution tests validate the code path.
 
-The profiles stop at language-preservation validation gates and leave checkpoints
-intact. The debug profile also stops on concept AUC below 0.5 or unavailable AUC.
-The 100M profile logs concept AUC without using it as a stop condition, so weak
-early concept detection does not prevent measuring the full-budget outcome.
-Removing that stop condition does not mean concept detection passed.
+The debug profile stops at language-preservation and concept AUC gates, leaving
+checkpoints intact. The 100M profile reports KL, NLL and concept AUC without
+stopping on finite degradation or weak/unavailable AUC. Nonfinite losses and
+validation values still stop training. Stop thresholds may change on resume
+without changing the dataset, optimizer, or training settings. Completion does
+not imply capability preservation or successful concept detection.
 Read `runs/100m/experiment/<stage>/status.json` to distinguish completion from a
 gate failure. `PIPELINE_COMPLETE` is printed only when both stages and reports
 finish. Run the same command to resume an interrupted trainer. Preparation itself

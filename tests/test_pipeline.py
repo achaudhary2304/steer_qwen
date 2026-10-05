@@ -98,7 +98,11 @@ class PipelineTests(unittest.TestCase):
             with patch.object(pipeline, 'save_json', side_effect=interrupt):
                 with self.assertRaisesRegex(RuntimeError, 'simulated interruption'):
                     train_stage(data, root / 'resumed', cfg)
-            train_stage(data, root / 'resumed', cfg, resume=True)
+            from dataclasses import replace
+            relaxed = replace(cfg, maximum_validation_kl=None, maximum_nll_increase=None)
+            train_stage(data, root / 'resumed', relaxed, resume=True)
+            with self.assertRaisesRegex(ValueError, 'identical training configuration'):
+                train_stage(data, root / 'resumed', replace(relaxed, bottleneck_lr=0.01), resume=True)
             full = torch.load(root / 'full/last.pt', weights_only=True)
             resumed = torch.load(root / 'resumed/last.pt', weights_only=True)
             for name in full['bottleneck']:
@@ -142,6 +146,10 @@ class PipelineTests(unittest.TestCase):
             status = json.loads((output / 'status.json').read_text())
             self.assertEqual(status['state'], 'gate_failed')
             self.assertTrue(any('validation KL' in reason for reason in status['gate_failures']))
+            from dataclasses import replace
+            train_stage(data, output, replace(cfg, maximum_validation_kl=None,
+                        maximum_nll_increase=None), resume=True)
+            self.assertEqual(json.loads((output / 'status.json').read_text())['state'], 'complete')
             cfg.training_tokens = 100000000
             with self.assertRaisesRegex(ValueError, 'unique Atlas-token budget'):
                 train_stage(data, Path(directory) / 'insufficient-data', cfg)

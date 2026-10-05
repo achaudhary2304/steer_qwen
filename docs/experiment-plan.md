@@ -64,7 +64,8 @@ by this implementation. The leakage loss uses an alternating linear adversary
 on unknown/residual pooled states; post-hoc probes audit the remaining leakage.
 
 The 100M study reports concept AUC throughout without stopping on low or
-unavailable AUC; language-preservation gates remain active. It uses separate
+unavailable AUC or finite language degradation; nonfinite-value checks remain
+active. It uses separate
 data/output directories from the debug study. Exact additive logit attribution
 is available at the final head;
 semantic purity, compositional steering, matched activation steering, and
