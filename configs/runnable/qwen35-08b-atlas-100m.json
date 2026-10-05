@@ -1,0 +1,21 @@
+{
+  "model": "Qwen/Qwen3.5-0.8B",
+  "revision": "2fc06364715b967f1860aea9cf38778875588b17",
+  "training_tokens": 100000000,
+  "steps": 1000000,
+  "max_length": 256,
+  "batch_size": 4,
+  "evaluate_every": 1000,
+  "evaluation_documents": 1024,
+  "unknown_features": 3072,
+  "unknown_rank": 256,
+  "known_topk": 16,
+  "unknown_topk": 64,
+  "top_layers": 6,
+  "lora_rank": 16,
+  "residual_scale": 0.75,
+  "maximum_validation_kl": 0.5,
+  "maximum_nll_increase": 0.3,
+  "minimum_validation_auc": 0.5,
+  "cpu_threads": 8
+}

@@ -32,25 +32,45 @@ This performs four checks:
 
 The smoke test must pass before running any real experiment.
 
-## 3. Authenticate for model and dataset access
+## 3. Optional Hugging Face authentication
 
 ```bash
-huggingface-cli login
+hf auth login
 ```
 
-Use a Hugging Face token with access to the selected Qwen model and Atlas/FineWeb
-dataset release. Model weights will download into Hugging Face's normal cache;
-they are not stored in Git.
+The selected repositories are public. A token is optional but can help with
+download limits. Model weights download into Hugging Face's normal cache;
+they are not stored in Git. If useful, set `HF_HOME` to a disk with enough space.
 
-## 4. Real-experiment status
+## 4. Launch the real experiment
 
-The repository currently has validated configs for layer probing, frozen
-bottleneck checks, and top-layer-LoRA runs. The streaming Atlas preparation,
-Qwen layer-probe runner, and sequence-level LoRA trainer are the next code
-milestone and are not yet exposed as commands. Do not create empty manifests or
-claim a real run from the synthetic command.
+First verify the actual Qwen/data path on a small sample:
 
-When those commands land, the intended order is:
+```bash
+conda run --no-capture-output -n concept-retrofit bash scripts/run_experiment.sh debug
+```
+
+Then run the 100M-token-per-stage experiment on the larger GPU:
+
+```bash
+conda run --no-capture-output -n concept-retrofit bash scripts/run_experiment.sh 100m
+```
+
+The launcher creates its data and log directories, streams a bounded Atlas
+sample, measures its unique training-token count, selects 1,024 concepts from
+training support, downloads Qwen3.5-0.8B, runs layer probes, trains both stages,
+and writes test reports plus generated steering examples. No laptop files are
+required. Neither the large data preparation nor 100M-token training has been
+completed on the laptop; small execution tests validate the code path.
+
+The profiles stop at explicit validation gates and leave checkpoints intact.
+Read `runs/100m/experiment/<stage>/status.json` to distinguish completion from a
+gate failure. `PIPELINE_COMPLETE` is printed only when both stages and reports
+finish. Run the same command to resume an interrupted trainer. Preparation itself
+restarts if its manifest was never completed. Use `tmux` to keep the process alive
+when disconnecting from a remote machine.
+
+The command order is:
 
 ```text
 prepare Atlas manifest -> probe Qwen layers -> frozen bottleneck check
@@ -58,3 +78,11 @@ prepare Atlas manifest -> probe Qwen layers -> frozen bottleneck check
 ```
 
 See [the experiment plan](experiment-plan.md) for the required measurements.
+
+Individual commands are available via:
+
+```bash
+python -m concept_retrofit.cli --help
+python -m concept_retrofit.cli prepare-atlas --help
+python -m concept_retrofit.cli train --help
+```

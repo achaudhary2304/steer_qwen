@@ -4,10 +4,12 @@
 
 - No training process is active.
 - Active backbone default: `Qwen/Qwen3.5-0.8B`.
-- The package currently provides the validated configuration schema, sparse
-  final-layer bottleneck component, and core loss definitions.
-- The next implementation milestone is a streaming Atlas reader plus a
-  sequence-level top-layer-LoRA trainer.
+- The package provides bounded Atlas preparation, layer probes, sequence-level
+  frozen and top-layer-LoRA trainers, checkpoint resume, held-out evaluation,
+  and native-bottleneck steering examples.
+- `scripts/run_experiment.sh` launches the debug or 100M-token profiles.
+- An offline tiny-Qwen integration suite and a two-step-per-stage pretrained
+  Qwen3.5-0.8B/real-Atlas smoke test passed. The 100M-token study is not yet run.
 
 ## Completed diagnostic result
 

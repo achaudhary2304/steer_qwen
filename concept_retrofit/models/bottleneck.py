@@ -35,6 +35,8 @@ class ConceptBottleneck(nn.Module):
     def __init__(self, hidden_size: int, known_concepts: int, unknown_features: int,
                  unknown_rank: int, known_topk: int, unknown_topk: int) -> None:
         super().__init__()
+        if hidden_size < 1 or not 0 < unknown_rank <= min(hidden_size, unknown_features):
+            raise ValueError('unknown_rank must fit the hidden and unknown feature dimensions')
         if not 0 < known_topk <= known_concepts or not 0 < unknown_topk <= unknown_features:
             raise ValueError("top-k values must fit their feature banks")
         self.known_topk, self.unknown_topk = known_topk, unknown_topk

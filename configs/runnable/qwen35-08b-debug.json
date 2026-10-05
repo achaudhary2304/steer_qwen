@@ -1,0 +1,17 @@
+{
+  "model": "Qwen/Qwen3.5-0.8B",
+  "revision": "2fc06364715b967f1860aea9cf38778875588b17",
+  "max_length": 128,
+  "batch_size": 1,
+  "steps": 100,
+  "evaluate_every": 25,
+  "evaluation_documents": 64,
+  "unknown_features": 192,
+  "unknown_rank": 32,
+  "known_topk": 8,
+  "unknown_topk": 32,
+  "residual_scale": 0.75,
+  "maximum_validation_kl": 0.5,
+  "maximum_nll_increase": 0.3,
+  "minimum_validation_auc": 0.5
+}

@@ -55,13 +55,15 @@ def run(seed: int = 1729, steps: int = 500, device: str = "cpu") -> SmokeReport:
     hidden_size, known, unknown, rank, vocabulary = 32, 6, 24, 8, 48
     hidden, labels, head = _make_fixture(seed, 768, hidden_size, known, rank, vocabulary)
     hidden, labels, head = hidden.to(device), labels.to(device), head.to(device)
+    train_hidden, train_labels = hidden[:600], labels[:600]
+    test_hidden, test_labels = hidden[600:], labels[600:]
     module = ConceptBottleneck(hidden_size, known, unknown, rank, known_topk=2, unknown_topk=4).to(device)
     optimizer = torch.optim.AdamW(module.parameters(), lr=3e-3, weight_decay=1e-4)
     generator = torch.Generator(device=device).manual_seed(seed + 1)
     module.train()
     for step in range(steps):
-        index = torch.randint(len(hidden), (96,), generator=generator, device=device)
-        h, y = hidden[index], labels[index]
+        index = torch.randint(len(train_hidden), (96,), generator=generator, device=device)
+        h, y = train_hidden[index], train_labels[index]
         # The residual starts permissive, then forces K + U to carry more of h.
         residual_scale = 1.0 - 0.75 * min(1.0, step / max(1, int(steps * 0.6)))
         reconstructed, parts = module(h, residual_scale=residual_scale)
@@ -75,6 +77,7 @@ def run(seed: int = 1729, steps: int = 500, device: str = "cpu") -> SmokeReport:
 
     module.eval()
     with torch.no_grad():
+        hidden, labels = test_hidden, test_labels
         reconstructed, parts = module(hidden, residual_scale=0.25)
         auc = roc_auc_score(labels.cpu().numpy().ravel(), parts.known_logits.cpu().numpy().ravel())
         mse = F.mse_loss(reconstructed, hidden).item()

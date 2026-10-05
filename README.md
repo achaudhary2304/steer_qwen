@@ -28,6 +28,7 @@ tests/                tests for active code only
 Git. They are experiment artifacts, not source code.
 
 For a fresh computer, follow the [new-machine quickstart](docs/new-machine-quickstart.md).
+Execution checks and their limits are recorded in [validation.md](docs/validation.md).
 
 ## Active method
 
@@ -68,9 +69,10 @@ python -m pip install -e .
 python -m unittest discover -s tests -v
 ```
 
-`environment.yml` installs CUDA-enabled PyTorch through Conda and the model,
-data, and LoRA libraries through pip. `requirements.txt` lists the pip-only
-packages for an already configured CUDA/PyTorch environment. Optional Qwen
+`environment.yml` creates a Python 3.11 Conda environment and installs PyTorch
+2.7.1 and Transformers 5.18.0 through pip. The Linux PyTorch wheel supplies its
+CUDA runtime dependencies; an NVIDIA driver is still required. LoRA is
+implemented explicitly in `models/qwen.py`. Optional Qwen
 performance kernels are not required for correctness and are intentionally not
 part of the environment definition.
 
@@ -78,7 +80,7 @@ Validate a configuration:
 
 ```bash
 python -m concept_retrofit.cli validate-config \
-  --config configs/top_lora/qwen35-08b_1024concept_100m.json
+  --config configs/runnable/qwen35-08b-atlas-100m.json
 ```
 
 ## Start here: synthetic smoke test
@@ -97,20 +99,65 @@ teacher-logit agreement, and the effect of a named intervention on LM-head
 logits. A pass verifies the module and loss plumbing only; it does not show
 that the method works on Qwen or Atlas.
 
-The checked-in configurations are plans, not a claim that their data manifests
-already exist. First create an Atlas manifest under `data/manifests/`; then run
-the layer-probe stage before selecting a bottleneck insertion layer.
+## Run the actual pipeline
+
+For a small real-data execution check:
+
+```bash
+bash scripts/run_experiment.sh debug
+```
+
+For the agreed first substantive study on the larger GPU:
+
+```bash
+bash scripts/run_experiment.sh 100m
+```
+
+These commands download the pinned FineWeb Atlas data subset and Qwen weights
+as needed, prepare document-disjoint splits, probe several Qwen layers, train
+the frozen bottleneck, initialize top-layer LoRA from its selected checkpoint,
+and write held-out evaluation reports and steering examples. The final
+bottleneck always remains immediately before the LM head; layer probes diagnose
+concept accessibility rather than changing the insertion point.
+
+The `100m` profile uses 1,024 concepts and requires at least 100M **unique training
+target tokens** in the prepared corpus. Each training stage processes 100M
+tokens, so the two stages together process about 200M tokens. Sampling is bounded
+over shard prefixes, not uniform across the full Atlas corpus. Preparation fails
+clearly if its sample does not meet the requested token or concept support
+budget. Increase sampling limits in the launcher if that happens.
+
+Logs are `runs/<profile>/prepare.log` and `runs/<profile>/pipeline.log`. Rerun the
+same launcher to resume saved training checkpoints; completed stages are skipped.
+Checkpoints include optimizer and RNG/sampler state. Dataset preparation is
+restarted if interrupted before its manifest is written. Capability gates stop
+training when validation KL exceeds 0.5 or NLL rises by more than 0.3 nats/token;
+annotation AUC below 0.5 also stops the supplied profiles. These are initial
+screening thresholds, not a claim of negligible capability loss.
+
+The test reports contain teacher/base and retrofit perplexity, KL, annotation
+AUC/AP, named/unknown/residual logit shares, and post-hoc linear leakage probes.
+Saved steering outputs include base, retrofit, amplification, and suppression.
+They are inspection examples, not semantic judge scores or comparisons with
+ordinary activation steering. External maths/code/reasoning benchmarks and a
+matched activation-steering baseline are later evaluations.
 
 ## Experiment order
 
-1. `configs/probe/`: identify which Qwen layer linearly exposes the selected
-   concepts.
-2. `configs/frozen_bottleneck/`: establish whether a final bottleneck can work
-   without backbone updates.
-3. `configs/top_lora/`: adapt the top layers with LoRA, teacher distillation,
-   scheduled residual pressure, and leakage measurements.
-4. Scale only after the held-out capability, concept-routing, and steering
-   checks agree.
+`configs/runnable/` contains executable pipeline configs. The other config
+folders retain the original design proposals and are not trainer inputs.
+
+1. Probe concept accessibility across depth on train/validation only.
+2. Train the final bottleneck with frozen Qwen.
+3. Adapt the top six layers with LoRA, teacher KL, next-token CE, chunk-label
+   supervision, reconstruction, residual pressure, and a linear leakage adversary.
+4. Evaluate each selected checkpoint on the same held-out test split.
+
+Chunk supervision predicts released machine-annotation membership using weighted
+BCE. Unassigned labels are proxy zeros, not certified semantic negatives. This
+implementation does not claim a statistically calibrated positive-unlabeled
+estimator or token-level supervision. A linear adversary also does not guarantee
+removal of all concept information from the bypass channels.
 
 ## Historical work
 
