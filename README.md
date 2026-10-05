@@ -79,6 +79,22 @@ python -m concept_retrofit.cli validate-config \
   --config configs/top_lora/qwen35-08b_1024concept_100m.json
 ```
 
+## Start here: synthetic smoke test
+
+Run this before downloading data or loading Qwen:
+
+```bash
+python -m concept_retrofit.cli synthetic-smoke \
+  --steps 500 \
+  --out runs/smoke/synthetic-report.json
+```
+
+It generates hidden states with six known ground-truth concepts, trains the
+actual sparse bottleneck, then checks concept detection, reconstruction,
+teacher-logit agreement, and the effect of a named intervention on LM-head
+logits. A pass verifies the module and loss plumbing only; it does not show
+that the method works on Qwen or Atlas.
+
 The checked-in configurations are plans, not a claim that their data manifests
 already exist. First create an Atlas manifest under `data/manifests/`; then run
 the layer-probe stage before selecting a bottleneck insertion layer.
