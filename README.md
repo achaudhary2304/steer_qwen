@@ -51,13 +51,26 @@ Read [the experiment plan](docs/experiment-plan.md) before starting a run.
 
 ## Setup
 
-Use the base Conda environment:
+For a fresh machine with an NVIDIA GPU:
+
+```bash
+conda env create -f environment.yml
+conda activate concept-retrofit
+```
+
+To use the existing base Conda environment on this laptop:
 
 ```bash
 conda activate base
 python -m pip install -e .
 python -m unittest discover -s tests -v
 ```
+
+`environment.yml` installs CUDA-enabled PyTorch through Conda and the model,
+data, and LoRA libraries through pip. `requirements.txt` lists the pip-only
+packages for an already configured CUDA/PyTorch environment. Optional Qwen
+performance kernels are not required for correctness and are intentionally not
+part of the environment definition.
 
 Validate a configuration:
 
