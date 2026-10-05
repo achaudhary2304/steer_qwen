@@ -1,0 +1,31 @@
+{
+  "name": "qwen3.5-0.8b-layer-probe",
+  "model": {
+    "name": "Qwen/Qwen3.5-0.8B",
+    "trainable_top_layers": 0,
+    "use_lora": false
+  },
+  "bottleneck": {
+    "known_concepts": 512,
+    "unknown_features": 1536,
+    "unknown_rank": 128,
+    "known_topk": 8,
+    "unknown_topk": 32
+  },
+  "losses": {
+    "next_token_ce": 1.0,
+    "teacher_kl": 1.0,
+    "concept_pu": 1.0,
+    "reconstruction": 1.0,
+    "residual": 0.0,
+    "sparsity": 0.0,
+    "leakage": 0.0
+  },
+  "data": {
+    "train_manifest": "data/manifests/atlas-debug.jsonl",
+    "max_tokens": 20000000,
+    "streaming": true,
+    "token_level_labels": false
+  },
+  "notes": "Diagnostic only: fit probes at multiple Qwen layers before selecting the bottleneck insertion layer."
+}

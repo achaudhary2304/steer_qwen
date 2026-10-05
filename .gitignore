@@ -1,0 +1,14 @@
+__pycache__/
+*.egg-info/
+.venv/
+.cache/
+/runs/
+/data/
+/checkpoints/
+/wandb/
+*.pt
+*.safetensors
+*.log
+references/
+archives/laptop-prototype/*
+!archives/laptop-prototype/ARCHIVE.md

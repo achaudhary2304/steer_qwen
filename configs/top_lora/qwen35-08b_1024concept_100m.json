@@ -1,0 +1,32 @@
+{
+  "name": "qwen3.5-0.8b-top-lora-1024concept-100m",
+  "model": {
+    "name": "Qwen/Qwen3.5-0.8B",
+    "trainable_top_layers": 7,
+    "use_lora": true,
+    "lora_rank": 16
+  },
+  "bottleneck": {
+    "known_concepts": 1024,
+    "unknown_features": 3072,
+    "unknown_rank": 256,
+    "known_topk": 8,
+    "unknown_topk": 32
+  },
+  "losses": {
+    "next_token_ce": 1.0,
+    "teacher_kl": 1.0,
+    "concept_pu": 1.0,
+    "reconstruction": 0.5,
+    "residual": 0.05,
+    "sparsity": 0.001,
+    "leakage": 0.1
+  },
+  "data": {
+    "train_manifest": "data/manifests/atlas-100m.jsonl",
+    "max_tokens": 100000000,
+    "streaming": true,
+    "token_level_labels": false
+  },
+  "notes": "First serious A100 run: top-layer LoRA, teacher distillation, and a leakage penalty."
+}
