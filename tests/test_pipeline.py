@@ -113,6 +113,21 @@ class PipelineTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Corrupted split'):
                 Corpus(data)
 
+    def test_warmup_validation_matches_training_and_best_uses_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data, model_path = fixture(directory)
+            cfg = RunConfig(model=str(model_path), revision=None, device='cpu', steps=4,
+                evaluate_every=1, evaluation_documents=4, unknown_features=8,
+                unknown_rank=4, known_topk=1, unknown_topk=2, max_length=16,
+                residual_scale=0.5, maximum_nll_increase=100, maximum_validation_kl=100)
+            output = Path(directory) / 'warmup'
+            train_stage(data, output, cfg)
+            history = json.loads((output / 'history.json').read_text())
+            self.assertEqual([r['validation']['residual_scale'] for r in history],
+                             [0.75, 0.5, 0.5, 0.5])
+            best = torch.load(output / 'best.pt', weights_only=True)
+            self.assertEqual(best['training_residual_scale'], cfg.residual_scale)
+
     def test_failed_gate_preserves_checkpoint_and_stops(self):
         with tempfile.TemporaryDirectory() as directory:
             data, model_path = fixture(directory)

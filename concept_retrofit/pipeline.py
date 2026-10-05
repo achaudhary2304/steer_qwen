@@ -1,5 +1,5 @@
 """Runnable staged Qwen experiment, with atomic checkpoints and validation gates."""
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import gc
 import json
 import math
@@ -211,6 +211,10 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
         if cfg.device.startswith('cuda'):
             torch.cuda.set_rng_state(state['cuda_rng'])
         first_step, tokens_seen, best = state['step'], state['tokens_seen'], state['best']
+        if state.get('selection_policy') != 'target-residual-scale-v1':
+            # Older runs selected checkpoints evaluated with a different scale
+            # from the one used in warm-up. Do not reuse that selection score.
+            best = float('inf')
         order, cursor = state['order'], state['cursor']
     save_json(output / 'config.json', asdict(cfg))
     save_json(output / 'adapter_targets.json', model.adapter_names)
@@ -264,14 +268,20 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
                   f'ce={ce.item():.5f} kl={kl.item():.5f} concept={concept.item():.5f} tokens={tokens_seen}', flush=True)
         complete = (step + 1 == cfg.steps or bool(cfg.training_tokens and tokens_seen >= cfg.training_tokens))
         if (step + 1) % cfg.evaluate_every == 0 or complete:
-            report, _, _ = evaluate(model, tokenizer, module, corpus, cfg, 'validation')
+            # Gate the actual training path during warm-up, not a prematurely
+            # compressed deployment path. Final reports still use cfg's target.
+            report, _, _ = evaluate(model, tokenizer, module, corpus,
+                                    replace(cfg, residual_scale=scale), 'validation')
             selection = report['nll'] + cfg.kl_weight * report['kl'] + cfg.concept_weight * report['annotation_loss']
             history.append({'step': step + 1, 'validation': report})
-            is_best = selection < best
+            # Comparing scores across residual scales favors near-identity
+            # warm-up checkpoints. Only select best at the deployment scale.
+            is_best = scale <= cfg.residual_scale + 1e-12 and selection < best
             if is_best:
                 best = selection
             state = {'config': asdict(cfg), 'stage': stage, 'manifest_sha256': manifest_hash,
                 'step': step+1, 'tokens_seen': tokens_seen, 'best': best,
+                'selection_policy': 'target-residual-scale-v1', 'training_residual_scale': scale,
                 'bottleneck': {n: p.detach().cpu() for n, p in module.state_dict().items()},
                 'adapters': {n: p.detach().cpu() for n, p in adapters.items()},
                 'adversary': adversary.state_dict(), 'optimizer': optimizer.state_dict(),
@@ -298,7 +308,7 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
             safe = not failures
             print(f"VALIDATION {stage} step={step+1} base_nll={report['base_nll']:.6f} "
                   f"nll={report['nll']:.6f} nll_increase={nll_increase:.6f} "
-                  f"kl={report['kl']:.6f} concept_auc={concept_auc} "
+                  f"kl={report['kl']:.6f} concept_auc={concept_auc} residual_scale={scale:.6f} "
                   f"gate={'pass' if safe else 'fail'}", flush=True)
             save_json(output / 'status.json', {'stage': stage, 'step': step+1,
                 'state': 'complete' if complete and safe else 'running' if safe else 'gate_failed',

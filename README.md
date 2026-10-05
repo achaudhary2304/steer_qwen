@@ -137,6 +137,13 @@ annotation AUC below 0.5 or unavailable AUC stops the debug profile only. In the
 stage. These are initial screening thresholds, not a claim of negligible
 capability loss.
 
+During residual warm-up, validation uses the current training residual scale,
+which is printed in each validation line. Final held-out reports use the target
+scale (0.75 in the supplied profiles). `last.pt` is saved throughout warm-up;
+`best.pt` selection starts only when the target scale is reached, so near-identity
+warm-up checkpoints cannot win against fully compressed checkpoints. Resuming
+older checkpoints retains training state but resets their old best-selection score.
+
 The test reports contain teacher/base and retrofit perplexity, KL, annotation
 AUC/AP, named/unknown/residual logit shares, and post-hoc linear leakage probes.
 Saved steering outputs include base, retrofit, amplification, and suppression.
