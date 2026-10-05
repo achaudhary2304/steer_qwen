@@ -283,16 +283,31 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
             if is_best:
                 save_checkpoint(output / 'best.pt', state)
             save_json(output / 'history.json', history)
-            safe = report['kl'] <= cfg.maximum_validation_kl and report['nll'] - report['base_nll'] <= cfg.maximum_nll_increase
+            nll_increase = report['nll'] - report['base_nll']
+            failures = []
+            if not math.isfinite(report['kl']) or report['kl'] > cfg.maximum_validation_kl:
+                failures.append(f"validation KL {report['kl']:.6f} > {cfg.maximum_validation_kl}")
+            if not math.isfinite(nll_increase) or nll_increase > cfg.maximum_nll_increase:
+                failures.append(f"validation NLL increase {nll_increase:.6f} > {cfg.maximum_nll_increase}")
             concept_auc = report['annotation_detection']['macro_auc']
             if cfg.minimum_validation_auc is not None:
-                safe = safe and concept_auc is not None and concept_auc >= cfg.minimum_validation_auc
+                if concept_auc is None:
+                    failures.append('validation concept AUC unavailable: no eligible concepts with both positive and negative examples')
+                elif not math.isfinite(concept_auc) or concept_auc < cfg.minimum_validation_auc:
+                    failures.append(f'validation concept AUC {concept_auc:.6f} < {cfg.minimum_validation_auc}')
+            safe = not failures
+            print(f"VALIDATION {stage} step={step+1} base_nll={report['base_nll']:.6f} "
+                  f"nll={report['nll']:.6f} nll_increase={nll_increase:.6f} "
+                  f"kl={report['kl']:.6f} concept_auc={concept_auc} "
+                  f"gate={'pass' if safe else 'fail'}", flush=True)
             save_json(output / 'status.json', {'stage': stage, 'step': step+1,
                 'state': 'complete' if complete and safe else 'running' if safe else 'gate_failed',
+                'gate_failures': failures,
                 'training_tokens': tokens_seen, 'requested_training_tokens': cfg.training_tokens,
                 'validation': report})
             if not safe:
-                raise RuntimeError('Validation gate failed (language or annotation AUC); checkpoint saved, pipeline stopped')
+                raise RuntimeError('Validation gate failed: ' + '; '.join(failures) +
+                                   f'; checkpoint saved in {output / "last.pt"}, pipeline stopped')
     if cfg.training_tokens and tokens_seen < cfg.training_tokens:
         raise RuntimeError('Step limit reached before token budget; increase steps and restart with a new config')
     del model, module, adversary

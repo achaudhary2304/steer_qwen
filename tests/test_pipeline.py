@@ -124,7 +124,9 @@ class PipelineTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'Validation gate failed'):
                 train_stage(data, output, cfg)
             self.assertTrue((output / 'last.pt').exists())
-            self.assertEqual(json.loads((output / 'status.json').read_text())['state'], 'gate_failed')
+            status = json.loads((output / 'status.json').read_text())
+            self.assertEqual(status['state'], 'gate_failed')
+            self.assertTrue(any('validation KL' in reason for reason in status['gate_failures']))
             cfg.training_tokens = 100000000
             with self.assertRaisesRegex(ValueError, 'unique Atlas-token budget'):
                 train_stage(data, Path(directory) / 'insufficient-data', cfg)
