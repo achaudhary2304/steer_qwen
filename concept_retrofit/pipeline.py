@@ -49,6 +49,7 @@ class RunConfig:
     maximum_validation_kl: float | None = 0.5
     maximum_nll_increase: float | None = 0.3
     minimum_validation_auc: float | None = None
+    diagnostics_every_tokens: int = 0
     cpu_threads: int = 4
 
     def validate(self):
@@ -56,6 +57,8 @@ class RunConfig:
             raise ValueError('steps/batch_size must be positive, max_length >= 2')
         if self.training_tokens < 0:
             raise ValueError('training_tokens must be nonnegative')
+        if self.diagnostics_every_tokens < 0:
+            raise ValueError('diagnostics_every_tokens must be nonnegative')
         if self.minimum_validation_auc is not None and not 0 <= self.minimum_validation_auc <= 1:
             raise ValueError('minimum_validation_auc must be in [0,1]')
         if self.evaluate_every < 1 or self.evaluation_documents < 1:
@@ -80,7 +83,8 @@ def load_run_config(path):
 
 def resume_configs_match(saved, current):
     """Stop thresholds may change; training/data settings must remain identical."""
-    gates = {'maximum_validation_kl', 'maximum_nll_increase', 'minimum_validation_auc'}
+    gates = {'maximum_validation_kl', 'maximum_nll_increase', 'minimum_validation_auc',
+             'diagnostics_every_tokens'}
     return {k: v for k, v in saved.items() if k not in gates} == {
         k: v for k, v in current.items() if k not in gates}
 
@@ -274,7 +278,9 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
             print(f'PROGRESS {stage} {step+1}/{cfg.steps} loss={loss.item():.5f} '
                   f'ce={ce.item():.5f} kl={kl.item():.5f} concept={concept.item():.5f} tokens={tokens_seen}', flush=True)
         complete = (step + 1 == cfg.steps or bool(cfg.training_tokens and tokens_seen >= cfg.training_tokens))
-        if (step + 1) % cfg.evaluate_every == 0 or complete:
+        milestone = bool(cfg.diagnostics_every_tokens and tokens_seen // cfg.diagnostics_every_tokens >
+                         (tokens_seen - n) // cfg.diagnostics_every_tokens)
+        if (step + 1) % cfg.evaluate_every == 0 or complete or milestone:
             # Gate the actual training path during warm-up, not a prematurely
             # compressed deployment path. Final reports still use cfg's target.
             report, _, _ = evaluate(model, tokenizer, module, corpus,
@@ -329,6 +335,10 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
             if not safe:
                 raise RuntimeError('Validation gate failed: ' + '; '.join(failures) +
                                    f'; checkpoint saved in {output / "last.pt"}, pipeline stopped')
+            if milestone:
+                from .evaluation.diagnostics import run_diagnostics
+                run_diagnostics(model, tokenizer, module, corpus, cfg, output,
+                                step + 1, tokens_seen, scale, report)
     if cfg.training_tokens and tokens_seen < cfg.training_tokens:
         raise RuntimeError('Step limit reached before token budget; increase steps and restart with a new config')
     del model, module, adversary

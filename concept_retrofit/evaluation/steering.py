@@ -7,12 +7,23 @@ import gc
 import torch
 
 from concept_retrofit.io import save_json
-from concept_retrofit.pipeline import load_trained
 
 
 @torch.no_grad()
 def generate_examples(data, checkpoint, output, max_new_tokens=32, concept_index=0):
+    from concept_retrofit.pipeline import load_trained
     cfg, corpus, model, tokenizer, module = load_trained(data, checkpoint)
+    generate_with_model(cfg, corpus, model, tokenizer, module, output, max_new_tokens, concept_index)
+    del model, module
+    gc.collect()
+    if cfg.device.startswith('cuda'):
+        torch.cuda.empty_cache()
+
+
+@torch.no_grad()
+def generate_with_model(cfg, corpus, model, tokenizer, module, output,
+                        max_new_tokens=32, concept_index=0):
+    """Use the resident model during training; do not reload weights or data."""
     module.eval()
     if not 0 <= concept_index < len(corpus.ids):
         raise ValueError('Invalid concept_index')
@@ -45,9 +56,6 @@ def generate_examples(data, checkpoint, output, max_new_tokens=32, concept_index
                 'response': tokenizer.decode(ids[0, original_ids.shape[1]:], skip_special_tokens=True),
                 'new_tokens': ids.shape[1] - original_ids.shape[1]})
     save_json(output, {'decoding': 'greedy, same prompts and token cap; no system message',
+        'residual_scale': cfg.residual_scale,
         'warning': 'Inspection examples, not semantic steering success scores or activation-baseline comparisons',
         'examples': results})
-    del model, module
-    gc.collect()
-    if cfg.device.startswith('cuda'):
-        torch.cuda.empty_cache()

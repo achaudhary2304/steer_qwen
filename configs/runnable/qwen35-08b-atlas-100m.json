@@ -7,6 +7,7 @@
   "batch_size": 4,
   "evaluate_every": 1000,
   "evaluation_documents": 1024,
+  "diagnostics_every_tokens": 10000000,
   "unknown_features": 3072,
   "unknown_rank": 256,
   "known_topk": 16,

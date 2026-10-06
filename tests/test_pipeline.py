@@ -154,6 +154,39 @@ class PipelineTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'unique Atlas-token budget'):
                 train_stage(data, Path(directory) / 'insufficient-data', cfg)
 
+    def test_periodic_diagnostics_preserve_training_and_use_no_test_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data, model_path = fixture(directory)
+            cfg = RunConfig(model=str(model_path), revision=None, device='cpu', steps=2,
+                evaluate_every=1, evaluation_documents=12, unknown_features=8,
+                unknown_rank=4, known_topk=1, unknown_topk=2, max_length=16,
+                maximum_nll_increase=100, maximum_validation_kl=100)
+            root = Path(directory)
+            train_stage(data, root / 'plain', cfg)
+            from dataclasses import replace
+            from concept_retrofit.evaluation import diagnostics
+            generate = diagnostics.generate_with_model
+            evaluator = diagnostics.evaluate
+            def short_generation(*args, **kwargs):
+                return generate(*args, max_new_tokens=2, **kwargs)
+            def validation_only(*args):
+                self.assertNotEqual(args[-1], 'test')
+                return evaluator(*args)
+            with patch.object(diagnostics, 'generate_with_model', side_effect=short_generation), \
+                 patch.object(diagnostics, 'evaluate', side_effect=validation_only):
+                train_stage(data, root / 'audited', replace(cfg, diagnostics_every_tokens=3))
+            plain = torch.load(root / 'plain/last.pt', weights_only=True)
+            audited = torch.load(root / 'audited/last.pt', weights_only=True)
+            for name in plain['bottleneck']:
+                torch.testing.assert_close(plain['bottleneck'][name], audited['bottleneck'][name], atol=0, rtol=0)
+            folders = list((root / 'audited/diagnostics').iterdir())
+            self.assertEqual(len(folders), 2)
+            for folder in folders:
+                self.assertEqual(json.loads((folder / 'status.json').read_text())['state'], 'complete')
+                self.assertEqual(json.loads((folder / 'validation-target.json').read_text())['split'], 'validation')
+                self.assertTrue(json.loads((folder / 'interventions.json').read_text())['concepts'])
+                self.assertTrue(list(folder.glob('steering-concept-*.json')))
+
 
 if __name__ == '__main__':
     unittest.main()

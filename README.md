@@ -135,7 +135,7 @@ validation KL above 0.5, NLL increase above 0.3 nats/token, or annotation AUC be
 0.5/unavailable stops training. The 100M profile reports these metrics without
 stopping on finite capability degradation or weak concept detection. Nonfinite
 loss/validation values still stop training. Resume permits changes to stop
-thresholds only; training settings and dataset identity must match.
+thresholds and diagnostic frequency; training settings and dataset identity must match.
 
 During residual warm-up, validation uses the current training residual scale,
 which is printed in each validation line. Final held-out reports use the target
@@ -143,6 +143,29 @@ scale (0.75 in the supplied profiles). `last.pt` is saved throughout warm-up;
 `best.pt` selection starts only when the target scale is reached, so near-identity
 warm-up checkpoints cannot win against fully compressed checkpoints. Resuming
 older checkpoints retains training state but resets their old best-selection score.
+
+The 100M profile also runs validation-only diagnostics every 10M processed
+tokens in each stage. Files live under
+`runs/100m/experiment/<stage>/diagnostics/tokens-XXXXXXXXX/`:
+
+- `validation-current.json`: current-scale NLL/perplexity, KL, AUC/AP and logit shares;
+- `validation-target.json`: the same audit at target residual scale 0.75;
+- `leakage.json`: linear readers fit on up to 256 training chunks and scored on
+  up to 256 validation chunks;
+- `interventions.json`: amplification/suppression prediction changes on up to
+  16 annotated and 16 unassigned chunks per concept, using the last next-token
+  target in each chunk;
+- `steering-concept-*.json`: matched base/retrofit/amplification/suppression
+  outputs for up to three concepts, two fixed prompts and a 32-token output cap;
+- `status.json`: completion marker, step, token count and residual scales.
+
+These diagnostics reuse the resident model, preserve training RNG state, and
+never use the held-out test split. Concepts are selected by validation support;
+they are a small monitoring sample, not a representative semantic steering
+benchmark. No metric threshold from this audit stops training. Target-scale
+results during warm-up are stress tests, not evaluations of the current training
+path. Periodic diagnostics add runtime and cannot activate in an already-running
+Python process; pull updates and resume from the saved checkpoint to enable them.
 
 The test reports contain teacher/base and retrofit perplexity, KL, annotation
 AUC/AP, named/unknown/residual logit shares, and post-hoc linear leakage probes.

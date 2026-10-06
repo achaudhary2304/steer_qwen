@@ -66,7 +66,7 @@ completed on the laptop; small execution tests validate the code path.
 The debug profile stops at language-preservation and concept AUC gates, leaving
 checkpoints intact. The 100M profile reports KL, NLL and concept AUC without
 stopping on finite degradation or weak/unavailable AUC. Nonfinite losses and
-validation values still stop training. Stop thresholds may change on resume
+validation values still stop training. Stop thresholds and diagnostic frequency may change on resume
 without changing the dataset, optimizer, or training settings. Completion does
 not imply capability preservation or successful concept detection.
 Read `runs/100m/experiment/<stage>/status.json` to distinguish completion from a
@@ -74,6 +74,13 @@ gate failure. `PIPELINE_COMPLETE` is printed only when both stages and reports
 finish. Run the same command to resume an interrupted trainer. Preparation itself
 restarts if its manifest was never completed. Use `tmux` to keep the process alive
 when disconnecting from a remote machine.
+
+Every 10M processed tokens per stage, the 100M profile saves validation-only
+concept, language, attribution, leakage and intervention diagnostics plus raw
+steering examples in `experiment/<stage>/diagnostics/`. The log marks these with
+`DIAGNOSTICS_START` and `DIAGNOSTICS_COMPLETE`. See the README for file names and
+the limits of these monitoring tests. An existing process needs a checkpointed
+restart to pick up newly pulled code or diagnostic settings.
 
 The command order is:
 
