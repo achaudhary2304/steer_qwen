@@ -82,6 +82,14 @@ steering examples in `experiment/<stage>/diagnostics/`. The log marks these with
 the limits of these monitoring tests. An existing process needs a checkpointed
 restart to pick up newly pulled code or diagnostic settings.
 
+Groq semantic judging is enabled in the 100M profile. Supply the existing key
+through `GROQ_API_KEY` or a permission-0600 file at
+`~/.config/concept-retrofit/groq.key`. Missing keys and API failures are logged
+without stopping training. Read `judge-summary.json` and `judge-records/` in each
+diagnostic folder to inspect scores and the exact prompts/responses. Requests
+are spaced at least 10 seconds apart. These small monitoring scores are not a
+replacement for a broader steering benchmark.
+
 The command order is:
 
 ```text

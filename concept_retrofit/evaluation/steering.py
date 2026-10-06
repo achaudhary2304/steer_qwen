@@ -22,12 +22,12 @@ def generate_examples(data, checkpoint, output, max_new_tokens=32, concept_index
 
 @torch.no_grad()
 def generate_with_model(cfg, corpus, model, tokenizer, module, output,
-                        max_new_tokens=32, concept_index=0):
+                        max_new_tokens=32, concept_index=0, prompts=None):
     """Use the resident model during training; do not reload weights or data."""
     module.eval()
     if not 0 <= concept_index < len(corpus.ids):
         raise ValueError('Invalid concept_index')
-    prompts = ['Write a short story about a quiet afternoon.', 'Describe a surprising discovery in three sentences.']
+    prompts = prompts or ['Write a short story about a quiet afternoon.', 'Describe a surprising discovery in three sentences.']
     results = []
     for prompt in prompts:
         formatted = tokenizer.apply_chat_template([{'role': 'user', 'content': prompt}],

@@ -135,7 +135,7 @@ validation KL above 0.5, NLL increase above 0.3 nats/token, or annotation AUC be
 0.5/unavailable stops training. The 100M profile reports these metrics without
 stopping on finite capability degradation or weak concept detection. Nonfinite
 loss/validation values still stop training. Resume permits changes to stop
-thresholds and diagnostic frequency; training settings and dataset identity must match.
+thresholds and diagnostic/judging settings; training settings and dataset identity must match.
 
 During residual warm-up, validation uses the current training residual scale,
 which is printed in each validation line. Final held-out reports use the target
@@ -156,7 +156,12 @@ tokens in each stage. Files live under
   16 annotated and 16 unassigned chunks per concept, using the last next-token
   target in each chunk;
 - `steering-concept-*.json`: matched base/retrofit/amplification/suppression
-  outputs for up to three concepts, two fixed prompts and a 32-token output cap;
+  outputs for up to three concepts, one neutral and one concept-eliciting prompt,
+  and a 32-token output cap;
+- `judge-summary.json`: GPT-OSS-20B semantic scores, direction success rates,
+  opportunity counts, quality changes and API failure/skip counts;
+- `judge-records/*.json`: exact judging prompts, blinded candidate mappings,
+  raw provider responses, validated scores and failed attempts;
 - `status.json`: completion marker, step, token count and residual scales.
 
 These diagnostics reuse the resident model, preserve training RNG state, and
@@ -166,6 +171,39 @@ benchmark. No metric threshold from this audit stops training. Target-scale
 results during warm-up are stress tests, not evaluations of the current training
 path. Periodic diagnostics add runtime and cannot activate in an already-running
 Python process; pull updates and resume from the saved checkpoint to enable them.
+
+### Semantic judging through Groq
+
+The 100M profile enables `diagnostics_judge`. It uses Groq's
+`openai/gpt-oss-20b` with JSON responses and a validated 0-4 rubric for concept
+presence, fluency, prompt following, and unrelated-meaning preservation.
+Candidate order is shuffled deterministically and intervention labels are
+hidden from the judge. Target-presence changes are measured relative to the
+unsteered retrofit. Suppression success excludes cases where the concept was
+already absent; amplification excludes already-maximal scores. API errors and
+invalid/truncated judge responses are never counted as successes. Missing keys
+are reported as skipped, not silently scored. Provider failures do not halt
+training, and completed response groups are reused when rerunning the judge.
+
+Requests start at least 10 seconds apart across judging processes on the same
+machine. A milestone needs up to six requests, plus retries, so judging adds at
+least about a minute of waiting/response time. No local judge model is loaded.
+The API receives generated text and concept definitions, not weights or keys
+embedded in prompts. Credentials come from `GROQ_API_KEY` or the private file
+`~/.config/concept-retrofit/groq.key`; never commit credentials.
+
+To judge or retry one already-saved diagnostic folder without restarting GPU
+training:
+
+```bash
+python -m concept_retrofit.cli judge --diagnostics \
+  runs/100m/experiment/frozen/diagnostics/tokens-060000000
+```
+
+These are small, potentially truncated monitoring samples, not a full steering
+benchmark. A different judge/rubric does not reproduce Steerling's reported
+numbers. External capability benchmarks and activation-steering comparisons
+remain separate work.
 
 The test reports contain teacher/base and retrofit perplexity, KL, annotation
 AUC/AP, named/unknown/residual logit shares, and post-hoc linear leakage probes.

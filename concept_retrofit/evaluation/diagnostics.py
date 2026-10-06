@@ -113,13 +113,28 @@ def run_diagnostics(model, tokenizer, module, corpus, cfg, output, step, tokens,
                 'metadata': metadata, 'effects': intervention_effects(
                     model, tokenizer, module, corpus, current_cfg, index)})
             generate_with_model(current_cfg, corpus, model, tokenizer, module,
-                                folder / f'steering-concept-{index}.json', concept_index=index)
+                                folder / f'steering-concept-{index}.json', concept_index=index,
+                                prompts=['Write a short story about a quiet afternoon.',
+                                    'Write a short passage that clearly illustrates this topic or style: '
+                                    + str(metadata.get('name', '')) + '. '
+                                    + str(metadata.get('description', ''))])
         save_json(folder / 'interventions.json', {'residual_scale': scale,
             'measurement': 'One last next-token target per chunk, up to 16 chunks per group.',
             'caveats': ['Unassigned labels are not verified negatives.',
                         'Prediction changes do not establish semantic steering success.',
                         'Concepts selected by validation support; not a comprehensive concept benchmark.'],
             'concepts': effects})
+        if cfg.diagnostics_judge:
+            from .judge import judge_folder, resolve_key
+            try:
+                judge_folder(folder)
+            except Exception as error:
+                # Judge/network failures are diagnostic failures, not reasons
+                # to discard the saved checkpoint or halt GPU training.
+                key = resolve_key()
+                message = str(error).replace(key, '[REDACTED]') if key else str(error)
+                save_json(folder / 'judge-status.json', {'state': 'error', 'error': message})
+                print(f'JUDGE_ERROR {message}', flush=True)
         save_json(folder / 'status.json', {'state': 'complete', 'step': step,
             'training_tokens': tokens, 'milestone_tokens': milestone, 'split': 'validation',
             'current_residual_scale': scale, 'target_residual_scale': cfg.residual_scale})

@@ -50,6 +50,7 @@ class RunConfig:
     maximum_nll_increase: float | None = 0.3
     minimum_validation_auc: float | None = None
     diagnostics_every_tokens: int = 0
+    diagnostics_judge: bool = False
     cpu_threads: int = 4
 
     def validate(self):
@@ -84,7 +85,7 @@ def load_run_config(path):
 def resume_configs_match(saved, current):
     """Stop thresholds may change; training/data settings must remain identical."""
     gates = {'maximum_validation_kl', 'maximum_nll_increase', 'minimum_validation_auc',
-             'diagnostics_every_tokens'}
+             'diagnostics_every_tokens', 'diagnostics_judge'}
     return {k: v for k, v in saved.items() if k not in gates} == {
         k: v for k, v in current.items() if k not in gates}
 

@@ -173,8 +173,11 @@ class PipelineTests(unittest.TestCase):
                 self.assertNotEqual(args[-1], 'test')
                 return evaluator(*args)
             with patch.object(diagnostics, 'generate_with_model', side_effect=short_generation), \
-                 patch.object(diagnostics, 'evaluate', side_effect=validation_only):
-                train_stage(data, root / 'audited', replace(cfg, diagnostics_every_tokens=3))
+                 patch.object(diagnostics, 'evaluate', side_effect=validation_only), \
+                 patch('concept_retrofit.evaluation.judge.judge_folder', return_value={}) as judge:
+                train_stage(data, root / 'audited', replace(cfg, diagnostics_every_tokens=3,
+                            diagnostics_judge=True))
+                self.assertEqual(judge.call_count, 2)
             plain = torch.load(root / 'plain/last.pt', weights_only=True)
             audited = torch.load(root / 'audited/last.pt', weights_only=True)
             for name in plain['bottleneck']:

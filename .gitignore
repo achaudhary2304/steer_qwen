@@ -9,6 +9,9 @@ __pycache__/
 *.pt
 *.safetensors
 *.log
+.env
+.env.*
+groq.key
 references/
 archives/laptop-prototype/*
 !archives/laptop-prototype/ARCHIVE.md

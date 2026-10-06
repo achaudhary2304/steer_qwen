@@ -29,6 +29,8 @@ def main() -> None:
     prepare.add_argument('--model', default='Qwen/Qwen3.5-0.8B')
     prepare.add_argument('--revision', default='2fc06364715b967f1860aea9cf38778875588b17')
     prepare.add_argument('--max-length', type=int, default=256)
+    judge = subcommands.add_parser('judge', help='score saved periodic steering examples through Groq')
+    judge.add_argument('--diagnostics', required=True, help='one tokens-XXXXXXXXX directory')
     for name in ('probe', 'train', 'evaluate', 'steer', 'run-all'):
         command = subcommands.add_parser(name)
         command.add_argument('--data', required=True)
@@ -62,6 +64,9 @@ def main() -> None:
         print(f"report: {args.out}")
         if not report.passed:
             raise SystemExit(1)
+    elif args.command == 'judge':
+        from concept_retrofit.evaluation.judge import judge_folder
+        judge_folder(args.diagnostics)
     elif args.command == 'prepare-atlas':
         from transformers import AutoTokenizer
         from concept_retrofit.data.prepare import prepare

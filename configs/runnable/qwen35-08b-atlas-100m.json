@@ -8,6 +8,7 @@
   "evaluate_every": 1000,
   "evaluation_documents": 1024,
   "diagnostics_every_tokens": 10000000,
+  "diagnostics_judge": true,
   "unknown_features": 3072,
   "unknown_rank": 256,
   "known_topk": 16,
