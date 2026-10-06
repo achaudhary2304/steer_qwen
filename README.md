@@ -330,3 +330,15 @@ not acquire these changes automatically.
 Judge rubric v2 explicitly separates concept presence from fluency, word
 limits, and resemblance to the unsteered answer. Rejudge both sides with the
 same rubric before comparing; older rubric v1 scores remain historical results.
+
+
+For the larger follow-up, use `configs/runnable/qwen35-08b-steering-scaled.json`:
+5,000 steps with every step receiving steering supervision. Concepts rotate
+equally; half each batch contains training chunks with verified eligible weak
+positions for that concept, and half comes from random training chunks. Both
+halves retain CE/KL. Pool sizes and actual injected positions are logged; this
+balances repeated exposures, not necessarily unique data. `--lexicon-documents
+100000 --expanded-prompts` fits the lexical resources on 100,000 training chunks
+and evaluates four prompts per concept before/after (16 judge groups each).
+This remains four concepts with approximate token labels, not 1,024 independently
+validated steering controls.

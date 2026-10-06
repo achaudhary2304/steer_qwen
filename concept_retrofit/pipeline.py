@@ -53,6 +53,7 @@ class RunConfig:
     diagnostics_judge: bool = False
     cpu_threads: int = 4
     steering_mode: str = 'coefficient'
+    steering_balanced: bool = False
     steering_lexicon: str | None = None
     steering_tau: float = 0.02
     steering_start_layer: int = -1
@@ -216,6 +217,15 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
     if (output / 'last.pt').exists() and not resume:
         raise FileExistsError('Output contains a checkpoint; use --resume or a fresh directory')
     model, tokenizer, module = setup(cfg, corpus, stage)
+    steering_pools = None
+    if stage == 'steering' and cfg.steering_balanced:
+        from .training.steering import balanced_pools
+        steering_pools = balanced_pools(corpus, tokenizer, lexicon, cfg.max_length, resource['documents'])
+        save_json(output / 'steering-pools.json', {'split': 'train',
+            'sampling': 'Round-robin concepts; half the batch is eligible concept chunks, half random LM chunks',
+            'documents_scanned': min(resource['documents'], len(corpus.splits['train'])),
+            'unique_chunks_by_concept': {key: len(values) for key, values in steering_pools.items()}})
+        print('STEERING_POOLS '+json.dumps({key:len(values) for key,values in steering_pools.items()}), flush=True)
     adapters = {n: p for n, p in model.named_parameters() if p.requires_grad}
     if initialize:
         previous = torch.load(initialize, map_location='cpu', weights_only=True)
@@ -275,6 +285,14 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
             order, cursor = torch.randperm(len(order), generator=generator), 0
         indices = order[cursor:cursor+cfg.batch_size].tolist()
         cursor += len(indices)
+        preferred_concept = None
+        if steering_pools:
+            keys = sorted(steering_pools, key=int)
+            key = keys[step % len(keys)]
+            preferred_concept = int(key)
+            pool = steering_pools[key]
+            for slot in range(max(1, len(indices) // 2)):
+                indices[slot] = pool[torch.randint(len(pool), (1,), generator=generator).item()]
         inputs, labels, label_valid = corpus.batch(tokenizer, [corpus.splits['train'][i] for i in indices],
                                                     cfg.max_length, cfg.device)
         with model.teacher():
@@ -288,8 +306,13 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
                 selected_positions = injection_positions(inputs, labels, label_valid, int(key), entry['tokens'])
                 if selected_positions.any():
                     candidates.append((int(key), entry, selected_positions))
+            if preferred_concept is not None:
+                candidates = [item for item in candidates if item[0] == preferred_concept]
+                if not candidates:
+                    raise RuntimeError('Balanced sample lacks its promised steering positions')
             if candidates:
-                injected_concept, entry, positions = candidates[torch.randint(len(candidates), (1,), generator=generator).item()]
+                selected = 0 if preferred_concept is not None else torch.randint(len(candidates), (1,), generator=generator).item()
+                injected_concept, entry, positions = candidates[selected]
                 direction, _, _ = calibrated_direction(model, module, injected_concept, cfg.steering_tau)
                 start_layer = cfg.steering_start_layer if cfg.steering_start_layer >= 0 else len(model.backbone.layers)-cfg.top_layers
                 with model.inject(direction, positions, start_layer):

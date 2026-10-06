@@ -30,6 +30,8 @@ def main():
     parser.add_argument('--max-new-tokens', type=int, default=96)
     parser.add_argument('--strengths', default='0.2,1,3')
     parser.add_argument('--resume', action='store_true')
+    parser.add_argument('--lexicon-documents', type=int, default=20000)
+    parser.add_argument('--expanded-prompts', action='store_true')
     args = parser.parse_args()
     out = Path(args.out)
     if out.exists() and not args.resume:
@@ -50,7 +52,7 @@ def main():
     concept_map = {c['name'].casefold():i for i,c in enumerate(corpus.manifest['concepts'])}
     indices = [concept_map[n.casefold()] for n in names]
     if not Path(cfg.steering_lexicon).exists():
-        build_lexicon(args.data, tokenizer, cfg.steering_lexicon, indices)
+        build_lexicon(args.data, tokenizer, cfg.steering_lexicon, indices, max_documents=args.lexicon_documents)
     report, _, _ = evaluate(model, tokenizer, module, corpus,
                              replace(original_cfg, evaluation_documents=cfg.evaluation_documents), 'validation')
     save_json(out/'validation-before.json', report)
@@ -67,7 +69,7 @@ def main():
     del state
     for checkpoint, directory in [(before, out/'before')]:
         if not (directory/'audit.json').exists() or json.loads((directory/'audit.json').read_text())['state'] != 'complete':
-            audit(args.data, checkpoint, directory, names, args.max_new_tokens, strengths)
+            audit(args.data, checkpoint, directory, names, args.max_new_tokens, strengths, expanded_prompts=args.expanded_prompts)
     trained = out/'training'
     status = trained/'status.json'
     complete = status.exists() and json.loads(status.read_text())['state'] == 'complete'
@@ -81,7 +83,7 @@ def main():
     del model, tokenizer, module, corpus
     gc.collect(); torch.cuda.empty_cache()
     if not (out/'after/audit.json').exists() or json.loads((out/'after/audit.json').read_text())['state'] != 'complete':
-        audit(args.data, after, out/'after', names, args.max_new_tokens, strengths)
+        audit(args.data, after, out/'after', names, args.max_new_tokens, strengths, expanded_prompts=args.expanded_prompts)
     save_json(out/'status.json', {'state':'complete', 'source_checkpoint':str(source),
                                  'annotation_policy':'train-only lift-based weak token positions',
                                  'config':asdict(cfg)})

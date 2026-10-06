@@ -62,12 +62,12 @@ class PipelineTests(unittest.TestCase):
             output = Path(directory) / 'content-audit'
             with patch('concept_retrofit.evaluation.content_steering.judge_folder', return_value={}):
                 run(data, checkpoint, output, [manifest['concepts'][0]['name']], max_new_tokens=2,
-                    strengths=(2., 4.))
+                    strengths=(2., 4.), expanded_prompts=True)
             self.assertTrue((output / 'checkpoint.pt').exists())
             self.assertEqual(json.loads((output / 'audit.json').read_text())['state'], 'complete')
             for strength in (2., 4.):
                 samples = json.loads((output / f'strength-{strength:g}/steering-concept-0.json').read_text())['examples']
-                self.assertEqual(len(samples), 8)
+                self.assertEqual(len(samples), 16)
                 for item in samples:
                     if item['condition'] != 'base':
                         self.assertTrue(0 <= item['factual_topk_active_fraction'] <= 1)

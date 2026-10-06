@@ -110,3 +110,23 @@ def intervention_losses(model, parts, reconstructed, positions, concept, tokens,
     for offset in range(0, len(states), block):
         express = express + checkpoint(token_loss, states[offset:offset+block], use_reentrant=False)
     return respond, express / len(states)
+
+
+def balanced_pools(corpus, tokenizer, lexicon, max_length, max_documents):
+    """Find train chunks with actual eligible causal targets for each concept."""
+    pools = {key: [] for key in lexicon}
+    records = corpus.splits['train'][:max_documents]
+    for offset in range(0, len(records), 256):
+        batch = records[offset:offset+256]
+        encoded = tokenizer([row['text'] for row in batch], add_special_tokens=False)['input_ids']
+        for local, (row, ids) in enumerate(zip(batch, encoded)):
+            if not 2 <= len(ids) <= max_length:
+                continue
+            target_ids = set(ids[1:])
+            for key, entry in lexicon.items():
+                if entry['atlas_id'] in row['label_ids'] and target_ids.intersection(entry['tokens']):
+                    pools[key].append(offset+local)
+    missing = [lexicon[key]['name'] for key, values in pools.items() if not values]
+    if missing:
+        raise ValueError('No eligible steering training chunks for: '+', '.join(missing))
+    return pools

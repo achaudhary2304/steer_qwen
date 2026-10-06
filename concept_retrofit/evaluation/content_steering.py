@@ -11,7 +11,7 @@ from .steering import generate_with_model
 from .judge import judge_folder
 
 
-def run(data, checkpoint, output, names, max_new_tokens=96, strengths=(1.,)):
+def run(data, checkpoint, output, names, max_new_tokens=96, strengths=(1.,), expanded_prompts=False):
     if not strengths or len(set(strengths)) != len(strengths) or any(not math.isfinite(s) or s <= 0 for s in strengths):
         raise ValueError('Strengths must be distinct finite positive values')
     folder = Path(output)
@@ -33,7 +33,7 @@ def run(data, checkpoint, output, names, max_new_tokens=96, strengths=(1.,)):
     save_json(folder / 'audit.json', {'source_checkpoint': str(checkpoint),
         'step': state['step'], 'training_tokens': state['tokens_seen'], 'stage': state['stage'],
         'residual_scale': cfg.residual_scale, 'max_new_tokens': max_new_tokens,
-        'strengths': list(strengths),
+        'strengths': list(strengths), 'expanded_prompts': expanded_prompts,
         'concepts': selected, 'state': 'running'})
     del state
     groups = []
@@ -48,6 +48,9 @@ def run(data, checkpoint, output, names, max_new_tokens=96, strengths=(1.,)):
             prompts = ['Write a short story about someone spending an evening at home. Keep it under 70 words.',
                        f'Write a short scene involving {metadata["name"]}. '
                        f'The topic means: {metadata["description"]} Keep it under 70 words.']
+            if expanded_prompts:
+                prompts += ['Describe a surprising discovery in a small town. Keep it under 70 words.',
+                            f'Write a short paragraph about {metadata["name"]}. Include two concrete details. Keep it under 70 words.']
             generate_with_model(cfg, corpus, model, tokenizer, module,
                                 group / f'steering-concept-{concept["concept_index"]}.json',
                                 max_new_tokens, concept['concept_index'], prompts, strength=strength,
