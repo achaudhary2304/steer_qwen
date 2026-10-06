@@ -52,8 +52,21 @@ class RunConfig:
     diagnostics_every_tokens: int = 0
     diagnostics_judge: bool = False
     cpu_threads: int = 4
+    steering_mode: str = 'coefficient'
+    steering_lexicon: str | None = None
+    steering_tau: float = 0.02
+    steering_start_layer: int = -1
+    respond_weight: float = 1.0
+    express_weight: float = 1.0
+    suppression_strength: float = 1.0
 
     def validate(self):
+        if self.steering_mode not in ('coefficient', 'layer'):
+            raise ValueError('steering_mode must be coefficient or layer')
+        if not math.isfinite(self.steering_tau) or self.steering_tau <= 0:
+            raise ValueError('steering_tau must be finite and positive')
+        if self.steering_start_layer < -1:
+            raise ValueError('steering_start_layer must be -1 or a layer index')
         if self.steps < 1 or self.batch_size < 1 or self.max_length < 2:
             raise ValueError('steps/batch_size must be positive, max_length >= 2')
         if self.training_tokens < 0:
@@ -72,7 +85,7 @@ class RunConfig:
             raise ValueError('Learning rates must be positive')
         if any(getattr(self, name) < 0 for name in (
             'ce_weight', 'kl_weight', 'concept_weight', 'reconstruction_weight',
-            'residual_weight', 'leakage_weight')):
+            'residual_weight', 'leakage_weight', 'respond_weight', 'express_weight', 'suppression_strength')):
             raise ValueError('Loss weights must be nonnegative')
 
 
@@ -86,6 +99,8 @@ def resume_configs_match(saved, current):
     """Stop thresholds may change; training/data settings must remain identical."""
     gates = {'maximum_validation_kl', 'maximum_nll_increase', 'minimum_validation_auc',
              'diagnostics_every_tokens', 'diagnostics_judge'}
+    saved = asdict(RunConfig(**saved))
+    current = asdict(RunConfig(**current))
     return {k: v for k, v in saved.items() if k not in gates} == {
         k: v for k, v in current.items() if k not in gates}
 
@@ -97,7 +112,7 @@ def setup(cfg, corpus, stage):
     np.random.seed(cfg.seed)
     torch.manual_seed(cfg.seed)
     model, tokenizer = load_text(cfg.model, cfg.revision, cfg.device)
-    if stage == 'lora':
+    if stage in ('lora', 'steering'):
         model.add_lora(cfg.top_layers, cfg.lora_rank)
     count = len(corpus.ids)
     module = ConceptBottleneck(model.head.in_features, count, cfg.unknown_features,
@@ -181,6 +196,18 @@ def evaluate(model, tokenizer, module, corpus, cfg, split):
 
 def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False):
     corpus = Corpus(data)
+    lexicon = None
+    lexicon_hash = None
+    if stage == 'steering':
+        if not cfg.steering_lexicon or cfg.steering_mode != 'layer':
+            raise ValueError('Steering stage requires a lexicon and steering_mode=layer')
+        resource = json.loads(Path(cfg.steering_lexicon).read_text())
+        if resource['manifest_sha256'] != digest(Path(data) / 'manifest.json'):
+            raise ValueError('Steering lexicon belongs to another dataset')
+        lexicon = resource['concepts']
+        if not lexicon:
+            raise ValueError('Empty steering lexicon')
+        lexicon_hash = digest(cfg.steering_lexicon)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     manifest_hash = digest(Path(data) / 'manifest.json')
@@ -197,6 +224,10 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
         if previous['config']['model'] != cfg.model or previous['config']['revision'] != cfg.revision:
             raise ValueError('Initialization checkpoint uses a different backbone')
         module.load_state_dict(previous['bottleneck'])
+        for name, value in previous.get('adapters', {}).items():
+            if name not in adapters:
+                raise ValueError('Initialization adapters do not match the new stage')
+            adapters[name].data.copy_(value.to(cfg.device))
     # A linear adversary tries to read labels from unknown/residual. It is
     # fitted on detached features, then the module/backbone tries to confuse it.
     adversary = nn.Linear(2 * model.head.in_features, len(corpus.ids)).to(cfg.device)
@@ -207,11 +238,14 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
     optimizer = torch.optim.AdamW(groups)
     generator = torch.Generator().manual_seed(cfg.seed)
     first_step, tokens_seen, best = 0, 0, float('inf')
+    steering_counts = {'positions': 0, 'steps_with_injection': 0, 'by_concept': {}}
     order, cursor = torch.randperm(len(corpus.splits['train']), generator=generator), 0
     if resume:
         state = torch.load(output / 'last.pt', map_location='cpu', weights_only=True)
         if not resume_configs_match(state['config'], asdict(cfg)) or state['manifest_sha256'] != manifest_hash or state['stage'] != stage:
             raise ValueError('Resume requires identical training configuration, data, and stage; only stop thresholds may change')
+        if state.get('steering_lexicon_sha256') != lexicon_hash:
+            raise ValueError('Steering lexicon changed since checkpoint')
         module.load_state_dict(state['bottleneck'])
         for name, value in state['adapters'].items():
             adapters[name].data.copy_(value.to(cfg.device))
@@ -223,6 +257,7 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
         if cfg.device.startswith('cuda'):
             torch.cuda.set_rng_state(state['cuda_rng'])
         first_step, tokens_seen, best = state['step'], state['tokens_seen'], state['best']
+        steering_counts = state.get('steering_counts', steering_counts)
         if state.get('selection_policy') != 'target-residual-scale-v1':
             # Older runs selected checkpoints evaluated with a different scale
             # from the one used in warm-up. Do not reuse that selection score.
@@ -244,9 +279,32 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
                                                     cfg.max_length, cfg.device)
         with model.teacher():
             teacher = model.hidden(inputs)
-        hidden = model.hidden(inputs)
+        respond, express, injection_count, injected_concept = None, None, 0, None
+        positions = None
+        if stage == 'steering':
+            from .training.steering import calibrated_direction, injection_positions, intervention_losses
+            candidates = []
+            for key, entry in lexicon.items():
+                selected_positions = injection_positions(inputs, labels, label_valid, int(key), entry['tokens'])
+                if selected_positions.any():
+                    candidates.append((int(key), entry, selected_positions))
+            if candidates:
+                injected_concept, entry, positions = candidates[torch.randint(len(candidates), (1,), generator=generator).item()]
+                direction, _, _ = calibrated_direction(model, module, injected_concept, cfg.steering_tau)
+                start_layer = cfg.steering_start_layer if cfg.steering_start_layer >= 0 else len(model.backbone.layers)-cfg.top_layers
+                with model.inject(direction, positions, start_layer):
+                    hidden = model.hidden(inputs)
+                injection_count = int(positions.sum())
+                steering_counts['positions'] += injection_count
+                steering_counts['steps_with_injection'] += 1
+                key = str(injected_concept)
+                steering_counts['by_concept'][key] = steering_counts['by_concept'].get(key, 0) + injection_count
+            else:
+                hidden = model.hidden(inputs)
+        else:
+            hidden = model.hidden(inputs)
         progress = min(1., tokens_seen / max(1, cfg.training_tokens * 0.5)) if cfg.training_tokens else min(1., (step+1) / max(1, cfg.steps * 0.5))
-        scale = 1. - (1. - cfg.residual_scale) * progress
+        scale = cfg.residual_scale if stage == 'steering' else 1. - (1. - cfg.residual_scale) * progress
         reconstructed, parts = module(hidden.float(), scale)
         mask = inputs['attention_mask'].bool()
         ce, kl, _, n = language_losses(model, teacher, reconstructed, inputs['input_ids'], mask)
@@ -267,6 +325,15 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
         loss = (cfg.ce_weight * ce + cfg.kl_weight * kl + cfg.concept_weight * concept +
                 cfg.reconstruction_weight * recon + cfg.residual_weight * progress * residual -
                 (cfg.leakage_weight * leakage if stage == 'lora' else 0))
+        if stage == 'steering':
+            respond = hidden.sum() * 0
+            express = hidden.sum() * 0
+            if injection_count:
+                respond, express = intervention_losses(model, parts, reconstructed, positions, injected_concept, entry['tokens'])
+            # Match the dedicated phase's intent: language objective + respond
+            # + express. Keep teacher KL as a retrofit preservation addition;
+            # do not impose chunk/reconstruction/independence losses here.
+            loss = cfg.ce_weight * ce + cfg.kl_weight * kl + cfg.respond_weight * respond + cfg.express_weight * express
         if not torch.isfinite(loss):
             raise RuntimeError('Nonfinite loss; previous checkpoint retained')
         optimizer.zero_grad(set_to_none=True)
@@ -278,6 +345,10 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
         if (step + 1) % interval == 0 or (cfg.training_tokens and tokens_seen % max(1, cfg.training_tokens // 100) < n):
             print(f'PROGRESS {stage} {step+1}/{cfg.steps} loss={loss.item():.5f} '
                   f'ce={ce.item():.5f} kl={kl.item():.5f} concept={concept.item():.5f} tokens={tokens_seen}', flush=True)
+        if stage == 'steering' and ((step+1) % max(1, cfg.steps // 100) == 0):
+            print(f'STEERING_TRAIN step={step+1}/{cfg.steps} concept={injected_concept} '
+                  f'positions={injection_count} respond={float(respond):.6f} express={float(express):.6f} '
+                  f'tau={cfg.steering_tau}', flush=True)
         complete = (step + 1 == cfg.steps or bool(cfg.training_tokens and tokens_seen >= cfg.training_tokens))
         milestone = bool(cfg.diagnostics_every_tokens and tokens_seen // cfg.diagnostics_every_tokens >
                          (tokens_seen - n) // cfg.diagnostics_every_tokens)
@@ -287,7 +358,8 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
             report, _, _ = evaluate(model, tokenizer, module, corpus,
                                     replace(cfg, residual_scale=scale), 'validation')
             selection = report['nll'] + cfg.kl_weight * report['kl'] + cfg.concept_weight * report['annotation_loss']
-            history.append({'step': step + 1, 'validation': report})
+            history.append({'step': step + 1, 'validation': report,
+                            'steering_counts': json.loads(json.dumps(steering_counts)) if lexicon else None})
             # Comparing scores across residual scales favors near-identity
             # warm-up checkpoints. Only select best at the deployment scale.
             is_best = scale <= cfg.residual_scale + 1e-12 and selection < best
@@ -295,6 +367,7 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
                 best = selection
             state = {'config': asdict(cfg), 'stage': stage, 'manifest_sha256': manifest_hash,
                 'step': step+1, 'tokens_seen': tokens_seen, 'best': best,
+                'steering_lexicon_sha256': lexicon_hash, 'steering_counts': steering_counts,
                 'selection_policy': 'target-residual-scale-v1', 'training_residual_scale': scale,
                 'bottleneck': {n: p.detach().cpu() for n, p in module.state_dict().items()},
                 'adapters': {n: p.detach().cpu() for n, p in adapters.items()},
@@ -332,7 +405,7 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
                 'state': 'complete' if complete and safe else 'running' if safe else 'gate_failed',
                 'gate_failures': failures,
                 'training_tokens': tokens_seen, 'requested_training_tokens': cfg.training_tokens,
-                'validation': report})
+                'validation': report, 'steering_counts': steering_counts if lexicon else None})
             if not safe:
                 raise RuntimeError('Validation gate failed: ' + '; '.join(failures) +
                                    f'; checkpoint saved in {output / "last.pt"}, pipeline stopped')
@@ -340,6 +413,10 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
                 from .evaluation.diagnostics import run_diagnostics
                 run_diagnostics(model, tokenizer, module, corpus, cfg, output,
                                 step + 1, tokens_seen, scale, report)
+    if stage == 'steering' and steering_counts['positions'] == 0:
+        save_json(output / 'status.json', {'state': 'invalid_supervision', 'stage': stage,
+                                          'steering_counts': steering_counts})
+        raise RuntimeError('No token positions received steering supervision; inspect the lexicon and sampling')
     if cfg.training_tokens and tokens_seen < cfg.training_tokens:
         raise RuntimeError('Step limit reached before token budget; increase steps and restart with a new config')
     del model, module, adversary

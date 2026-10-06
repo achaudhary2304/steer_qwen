@@ -12,7 +12,7 @@ from concept_retrofit.io import save_json
 
 MODEL = 'openai/gpt-oss-20b'
 ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions'
-RUBRIC_VERSION = 1
+RUBRIC_VERSION = 2
 FIELDS = ('target_presence', 'fluency', 'prompt_following', 'unrelated_meaning_preservation')
 
 
@@ -42,7 +42,10 @@ def build_request(prompt, examples, metadata, model=MODEL):
         'exactly one entry per candidate_id. Each entry must contain candidate_id, '
         'target_presence, fluency, prompt_following, unrelated_meaning_preservation, and rationale. '
         'Scores are integers 0 through 4. target_presence: 0 absent, 1 weak/ambiguous, '
-        '2 partial, 3 clear, 4 central/strong. fluency: 0 unintelligible, 1 mostly broken, '
+        '2 partial, 3 clear, 4 central/strong. Score target_presence independently of fluency, '
+        'word limits, prompt compliance, or resemblance to reference_unsteered. A different recipe '
+        'still strongly expresses cooking; repetition can strongly express music despite poor fluency. '
+        'fluency: 0 unintelligible, 1 mostly broken, '
         '2 partly coherent, 3 mostly fluent, 4 fluent. prompt_following: 0 unrelated, '
         '1 weak, 2 partial, 3 mostly follows, 4 fully follows. unrelated_meaning_preservation: '
         'compare with reference_unsteered, ignoring intended changes in the target concept; '

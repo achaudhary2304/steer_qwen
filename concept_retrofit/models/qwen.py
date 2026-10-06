@@ -38,6 +38,33 @@ class QwenText(nn.Module):
     def logits(self, hidden):
         return self.head(hidden.to(self.head.weight.dtype)).float()
 
+    @contextmanager
+    def inject(self, direction, positions, start_layer):
+        """Add a direction at selected positions before each selected block.
+
+        Hooks exist only for this forward pass; teachers and later evaluations
+        cannot inherit an intervention. Positions refer to causal prediction
+        states (t predicts t+1), unlike Steerling's diffusion mask positions.
+        """
+        if not 0 <= start_layer < len(self.backbone.layers):
+            raise ValueError('Injection start layer is outside the backbone')
+        handles = []
+        def hook(block, args, kwargs):
+            hidden = kwargs.get('hidden_states', args[0] if args else None)
+            if hidden is None or hidden.shape[:2] != positions.shape:
+                raise ValueError('Injection mask must match hidden-state positions')
+            updated = hidden + positions[..., None].to(hidden.dtype) * direction.to(hidden.dtype)
+            if 'hidden_states' in kwargs:
+                return args, {**kwargs, 'hidden_states': updated}
+            return (updated, *args[1:]), kwargs
+        try:
+            for block in self.backbone.layers[start_layer:]:
+                handles.append(block.register_forward_pre_hook(hook, with_kwargs=True))
+            yield self
+        finally:
+            for handle in handles:
+                handle.remove()
+
     def add_lora(self, top_layers, rank):
         layers = self.backbone.layers
         if not 0 < top_layers <= len(layers):

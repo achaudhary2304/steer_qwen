@@ -260,3 +260,73 @@ removal of all concept information from the bypass channels.
 [`archives/laptop-prototype/`](archives/laptop-prototype/ARCHIVE.md) contains
 the prior prototypes and their exact configs. They remain available for audit,
 but are not importable as the active package.
+
+
+### Intervention-aware steering pilot
+
+The frozen/LoRA stages above train chunk detection and the bottleneck. They do
+**not** train response to interventions. The optional `steering` stage now does:
+
+- inject a normalized known-concept vector before every selected upper block;
+- calibrate its scale with `gamma = tau / max_v(W_v · e_c)`;
+- supervise `respond = -log(sigmoid(concept_logit))` at injected positions;
+- supervise `express = -log(sum of next-token probabilities over the concept's
+  high-lift vocabulary tokens)`;
+- retain next-token CE and teacher KL; disable the chunk, reconstruction,
+  residual and adversarial losses in this dedicated stage;
+- suppress with negative layer injections plus
+  `logits -= suppression_strength * relu(W · e_c)`.
+
+This adapts [Steerling §§6.2 and 10.2.4](https://arxiv.org/html/2608.07594v1)
+to **causal autoregressive** Qwen. The prediction state at position `t` is
+supervised for a concept-expressing target at `t+1`. Injection at inference is
+at the last causal prediction position; no diffusion masks are used.
+
+**Token annotation limitation:** Atlas is chunk-labelled. The first pilot
+uses chunk membership plus training-only token lift to infer weak token
+positions. This is not Guide Labs' token-attributed dataset. Lexical resources
+are fitted on the training split only; no validation/test text is used.
+`tau` is a calibration reference, not a guaranteed total logit shift after
+nonlinear Transformer propagation. These changes do not establish superiority
+over ordinary activation steering, and suppression is not separately trained
+with a negative-intervention loss.
+
+Run the bounded pilot without changing a running trainer:
+
+```bash
+python -u scripts/steering_pilot.py \
+  --data data/atlas-100m \
+  --checkpoint runs/100m/experiment/frozen/last.pt \
+  --out runs/steering-pilot \
+  --strengths 1 --max-new-tokens 64 \
+  > runs/steering-pilot.log 2>&1
+```
+
+The pilot copies the checkpoint, builds a train-only lexicon for Music, Home
+cooking, Astronomy and Computer Science, evaluates **the same calibrated
+interface before and after training**, and runs 500 top-layer LoRA/bottleneck
+updates. Groq judging stays paced at ten seconds per request. Raw prompts,
+answers, judge responses, validation metrics, injection counts and resumable
+training checkpoints are saved under the output directory. Look for
+`STEERING_TRAIN`, `VALIDATION steering` and `STEERING_PILOT_COMPLETE` in the log.
+The token-limited examples are monitoring evidence, not a full benchmark.
+
+For separate preparation/training:
+
+```bash
+python -m concept_retrofit.cli prepare-steering --data data/atlas-100m \
+  --concept-indices 11,61,433,968 --out runs/steering-pilot/lexicon.json
+python -u -m concept_retrofit.cli train --data data/atlas-100m \
+  --config configs/runnable/qwen35-08b-steering-pilot.json --stage steering \
+  --initialize runs/100m/experiment/frozen/last.pt --out runs/steering-pilot/training
+```
+
+Indices above belong to the current local vocabulary; use the names in
+`scripts/steering_pilot.py` when preparing a new Atlas sample. A future fresh
+`run-all` can append this stage with `--steering-config <config.json>` after
+LoRA; the lexicon must already exist. An already-running Python process does
+not acquire these changes automatically.
+
+Judge rubric v2 explicitly separates concept presence from fluency, word
+limits, and resemblance to the unsteered answer. Rejudge both sides with the
+same rubric before comparing; older rubric v1 scores remain historical results.

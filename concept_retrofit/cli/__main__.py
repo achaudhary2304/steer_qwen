@@ -38,14 +38,26 @@ def main() -> None:
     content.add_argument('--concepts', default='Music,Home cooking,Astronomy,Computer Science')
     content.add_argument('--max-new-tokens', type=int, default=96)
     content.add_argument('--strengths', default='1', help='comma-separated clamp strengths; amplification=s, suppression=1-s')
+    lexical = subcommands.add_parser('prepare-steering', help='train-only lexical lift resources for weak token steering supervision')
+    lexical.add_argument('--data', required=True)
+    lexical.add_argument('--out', required=True)
+    lexical.add_argument('--concept-indices', required=True)
+    lexical.add_argument('--max-documents', type=int, default=20000)
+    lexical.add_argument('--top-tokens', type=int, default=64)
+    lexical.add_argument('--min-count', type=int, default=5)
+    lexical.add_argument('--minimum-lift', type=float, default=2.)
+    lexical.add_argument('--model', default='Qwen/Qwen3.5-0.8B')
+    lexical.add_argument('--revision', default='2fc06364715b967f1860aea9cf38778875588b17')
     for name in ('probe', 'train', 'evaluate', 'steer', 'run-all'):
         command = subcommands.add_parser(name)
         command.add_argument('--data', required=True)
         command.add_argument('--out', required=True)
         if name in ('probe', 'train', 'run-all'):
             command.add_argument('--config', required=True, help='runnable RunConfig JSON')
+        if name == 'run-all':
+            command.add_argument('--steering-config', help='optional separate intervention-training config, run after LoRA')
         if name == 'train':
-            command.add_argument('--stage', choices=('frozen', 'lora'), default='frozen')
+            command.add_argument('--stage', choices=('frozen', 'lora', 'steering'), default='frozen')
             command.add_argument('--initialize')
         if name in ('train', 'run-all'):
             command.add_argument('--resume', action='store_true')
@@ -71,6 +83,12 @@ def main() -> None:
         print(f"report: {args.out}")
         if not report.passed:
             raise SystemExit(1)
+    elif args.command == 'prepare-steering':
+        from transformers import AutoTokenizer
+        from concept_retrofit.training.steering import build_lexicon
+        tokenizer = AutoTokenizer.from_pretrained(args.model, revision=args.revision)
+        build_lexicon(args.data, tokenizer, args.out, [int(c) for c in args.concept_indices.split(',')],
+                      args.max_documents, args.top_tokens, args.min_count, args.minimum_lift)
     elif args.command == 'content-steer':
         from concept_retrofit.evaluation.content_steering import run
         run(args.data, args.checkpoint, args.out, [n.strip() for n in args.concepts.split(',')],
@@ -127,6 +145,16 @@ def main() -> None:
                         args.resume and (stage_out / 'last.pt').exists())
                 evaluate_checkpoint(args.data, stage_out / 'best.pt', out / f'{stage}-test.json')
                 generate_examples(args.data, stage_out / 'best.pt', out / f'{stage}-examples.json')
+            if args.steering_config:
+                steering_cfg = load_run_config(args.steering_config)
+                stage_out = out / 'steering'
+                complete = (stage_out / 'status.json').exists() and json.loads(
+                    (stage_out / 'status.json').read_text())['state'] == 'complete'
+                if not (args.resume and complete):
+                    train_stage(args.data, stage_out, steering_cfg, 'steering',
+                                str(out / 'lora' / 'best.pt'), args.resume and (stage_out / 'last.pt').exists())
+                evaluate_checkpoint(args.data, stage_out / 'last.pt', out / 'steering-test.json')
+                generate_examples(args.data, stage_out / 'last.pt', out / 'steering-examples.json')
             print(f'PIPELINE_COMPLETE {out}', flush=True)
 
 
