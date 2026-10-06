@@ -25,6 +25,13 @@ class BottleneckTests(unittest.TestCase):
         changed, _ = self.module(self.hidden, residual_scale=1.0, interventions={0: 1.0})
         self.assertGreater(float((base - changed).abs().sum()), 0.0)
 
+    def test_signed_controls_have_the_exact_expected_vector_effect(self):
+        base, parts = self.module(self.hidden, residual_scale=0.75)
+        for value in (2., -1., 4., -3.):
+            changed, _ = self.module(self.hidden, residual_scale=0.75, interventions={0: value})
+            expected = (value - parts.known_activations[..., 0:1]) * self.module.known_vectors[0]
+            torch.testing.assert_close(changed - base, expected, atol=1e-6, rtol=1e-5)
+
 
 if __name__ == "__main__":
     unittest.main()

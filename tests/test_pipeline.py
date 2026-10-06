@@ -61,14 +61,20 @@ class PipelineTests(unittest.TestCase):
             from concept_retrofit.evaluation.content_steering import run
             output = Path(directory) / 'content-audit'
             with patch('concept_retrofit.evaluation.content_steering.judge_folder', return_value={}):
-                run(data, checkpoint, output, [manifest['concepts'][0]['name']], max_new_tokens=2)
+                run(data, checkpoint, output, [manifest['concepts'][0]['name']], max_new_tokens=2,
+                    strengths=(2., 4.))
             self.assertTrue((output / 'checkpoint.pt').exists())
             self.assertEqual(json.loads((output / 'audit.json').read_text())['state'], 'complete')
-            samples = json.loads((output / 'steering-concept-0.json').read_text())['examples']
-            self.assertEqual(len(samples), 8)
-            for item in samples:
-                if item['condition'] != 'base':
-                    self.assertTrue(0 <= item['factual_topk_active_fraction'] <= 1)
+            for strength in (2., 4.):
+                samples = json.loads((output / f'strength-{strength:g}/steering-concept-0.json').read_text())['examples']
+                self.assertEqual(len(samples), 8)
+                for item in samples:
+                    if item['condition'] != 'base':
+                        self.assertTrue(0 <= item['factual_topk_active_fraction'] <= 1)
+                    if item['condition'] == 'amplify':
+                        self.assertEqual(item['intervention_value'], strength)
+                    if item['condition'] == 'suppress':
+                        self.assertEqual(item['intervention_value'], 1. - strength)
 
     def test_real_qwen_end_to_end_and_teacher_invariance(self):
         with tempfile.TemporaryDirectory() as directory:

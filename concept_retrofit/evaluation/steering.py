@@ -4,6 +4,7 @@ Semantic steering quality must be judged separately; these artifacts only
 measure logit changes and preserve the actual generated text for inspection.
 """
 import gc
+import math
 import torch
 
 from concept_retrofit.io import save_json
@@ -22,11 +23,13 @@ def generate_examples(data, checkpoint, output, max_new_tokens=32, concept_index
 
 @torch.no_grad()
 def generate_with_model(cfg, corpus, model, tokenizer, module, output,
-                        max_new_tokens=32, concept_index=0, prompts=None):
+                        max_new_tokens=32, concept_index=0, prompts=None, strength=1., reference_examples=None):
     """Use the resident model during training; do not reload weights or data."""
     module.eval()
     if not 0 <= concept_index < len(corpus.ids):
         raise ValueError('Invalid concept_index')
+    if not math.isfinite(strength) or strength <= 0:
+        raise ValueError('Steering strength must be finite and positive')
     prompts = prompts or ['Write a short story about a quiet afternoon.', 'Describe a surprising discovery in three sentences.']
     results = []
     for prompt_number, prompt in enumerate(prompts, 1):
@@ -35,9 +38,15 @@ def generate_with_model(cfg, corpus, model, tokenizer, module, output,
         encoded = tokenizer(formatted, return_tensors='pt', add_special_tokens=False).to(cfg.device)
         original_ids = encoded['input_ids']
         for condition, intervention in [('base', None), ('retrofit', None),
-                                        ('amplify', {concept_index: 1.}), ('suppress', {concept_index: 0.})]:
+                                        ('amplify', {concept_index: strength}),
+                                        ('suppress', {concept_index: 1. - strength})]:
             print(f'STEERING_SAMPLE concept={concept_index} prompt={prompt_number}/{len(prompts)} '
                   f'condition={condition}', flush=True)
+            if condition in ('base', 'retrofit') and reference_examples is not None:
+                cached = reference_examples.get((prompt, condition))
+                if cached is not None:
+                    results.append(dict(cached))
+                    continue
             ids = original_ids.clone()
             concept_scores, sparse_activations = [], []
             for _ in range(max_new_tokens):
@@ -58,6 +67,7 @@ def generate_with_model(cfg, corpus, model, tokenizer, module, output,
                     break
             results.append({'prompt': prompt, 'condition': condition,
                 'concept_id': corpus.ids[concept_index], 'concept_index': concept_index,
+                'intervention_value': intervention[concept_index] if intervention else None,
                 'response': tokenizer.decode(ids[0, original_ids.shape[1]:], skip_special_tokens=True),
                 'new_tokens': ids.shape[1] - original_ids.shape[1],
                 'factual_concept_score_mean': sum(concept_scores) / len(concept_scores) if concept_scores else None,
@@ -65,5 +75,6 @@ def generate_with_model(cfg, corpus, model, tokenizer, module, output,
                 'factual_topk_active_fraction': sum(a > 0 for a in sparse_activations) / len(sparse_activations) if sparse_activations else None})
     save_json(output, {'decoding': 'greedy, same prompts and token cap; no system message',
         'residual_scale': cfg.residual_scale,
+        'strength': strength, 'amplification_value': strength, 'suppression_value': 1. - strength,
         'warning': 'Inspection examples, not semantic steering success scores or activation-baseline comparisons',
         'examples': results})

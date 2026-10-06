@@ -37,6 +37,7 @@ def main() -> None:
     content.add_argument('--out', required=True)
     content.add_argument('--concepts', default='Music,Home cooking,Astronomy,Computer Science')
     content.add_argument('--max-new-tokens', type=int, default=96)
+    content.add_argument('--strengths', default='1', help='comma-separated clamp strengths; amplification=s, suppression=1-s')
     for name in ('probe', 'train', 'evaluate', 'steer', 'run-all'):
         command = subcommands.add_parser(name)
         command.add_argument('--data', required=True)
@@ -72,7 +73,8 @@ def main() -> None:
             raise SystemExit(1)
     elif args.command == 'content-steer':
         from concept_retrofit.evaluation.content_steering import run
-        run(args.data, args.checkpoint, args.out, [n.strip() for n in args.concepts.split(',')], args.max_new_tokens)
+        run(args.data, args.checkpoint, args.out, [n.strip() for n in args.concepts.split(',')],
+            args.max_new_tokens, tuple(float(s) for s in args.strengths.split(',')))
     elif args.command == 'judge':
         from concept_retrofit.evaluation.judge import judge_folder
         judge_folder(args.diagnostics)

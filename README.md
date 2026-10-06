@@ -221,6 +221,16 @@ the trainer, but running concurrently uses additional RAM/VRAM and shares GPU
 time. Use a fresh output folder for each audit. Judge errors can be retried with
 the `judge` command above, without regenerating text.
 
+`content-steer --strengths 2,4` sweeps stronger signed coefficients on one fixed
+checkpoint. Strength 1 clamps amplification to 1 and suppression to 0; strength
+2 uses 2/-1, and strength 4 uses 4/-3. These are coefficient overrides, not
+multipliers of the factual score. Values outside [0,1] extrapolate beyond the
+training activation range. The exact hidden-state change is
+`(override - factual_sparse_activation) * learned_concept_vector`, holding
+unknown and residual contributions fixed for that forward pass. Multi-strength
+audits save each setting in `strength-*/` with a shared checkpoint snapshot and
+write `strength-summary.json` for comparison.
+
 The test reports contain teacher/base and retrofit perplexity, KL, annotation
 AUC/AP, named/unknown/residual logit shares, and post-hoc linear leakage probes.
 Saved steering outputs include base, retrofit, amplification, and suppression.
