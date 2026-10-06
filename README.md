@@ -416,7 +416,7 @@ The 5,000-step pilot generated repeated concept words at injection target
 `tau=0.1`, despite fluent unsteered output. Training and inference injection
 targets can now be recorded separately: `steering_tau` is the training target;
 `steering_inference_tau` overrides it only for generation. The scaled recipe
-uses an inference target of `0.02`. This is a calibration correction, not proof
+initially tested an inference target of `0.02`. This is a calibration correction, not proof
 that all concepts steer successfully. Before/after audits use the same target.
 
 Run a matched strength diagnostic on a saved model, keeping greedy decoding:
@@ -450,3 +450,13 @@ without injection. Zero preserves continuous amplification. Suppression is
 unchanged. This is an experimental autoregressive control schedule, not
 Steerling's masked-diffusion inference procedure; compare it against continuous
 injection using the same checkpoint, prompts, strength, and decoding.
+
+The subsequent four-concept diagnostic at `tau=0.05` found phrase loops under
+continuous injection in Music and Home cooking. An eight-token amplification
+window removed these loops in the same four neutral-prompt examples; semantic
+direction success remained 2/4. GPT-OSS mean fluency was 2.5/4 in both audits,
+so this does not establish an overall judged fluency improvement. The broader
+recipe now uses inference `tau=0.05` with an eight-token window; its training
+target stays `0.1`. This setting was selected on a small diagnostic, not the
+final benchmark. The added local CE repair remains experimental because it
+did not reliably recover all four controls.

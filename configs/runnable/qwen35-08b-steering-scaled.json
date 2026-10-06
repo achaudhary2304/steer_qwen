@@ -23,12 +23,13 @@
   "steering_mode": "layer",
   "steering_lexicon": "runs/steering-pilot-v2/lexicon.json",
   "steering_tau": 0.1,
-  "steering_inference_tau": 0.02,
+  "steering_inference_tau": 0.05,
   "steering_start_layer": 18,
   "respond_weight": 1.0,
   "express_weight": 1.0,
   "suppression_strength": 1.0,
   "bottleneck_lr": 3e-05,
   "lora_lr": 1e-05,
-  "steering_balanced": true
+  "steering_balanced": true,
+  "amplification_token_budget": 8
 }
