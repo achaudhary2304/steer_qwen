@@ -433,3 +433,13 @@ Strength multiplies the checkpoint's training target (`0.1` in this pilot), so
 contains unchanged weights with the tested inference setting. Raw text,
 repetition diagnostics, and paced GPT-OSS judge results remain in the output.
 The small failure-focused diagnostic is not a held-out steering benchmark.
+
+`qwen35-08b-steering-repair.json` is an experimental 1,000-step continuation
+of the failed pilot. It retains its LoRA/bottleneck and optimizer state, reduces
+respond/express weights to `0.25`, and adds `injected_ce_weight=1`: next-token
+cross-entropy averaged over the injected causal positions. Global LM loss is
+still active. This addresses normalization imbalance between whole-batch LM
+loss and losses averaged over a small number of injected states. The extra
+local LM objective is our AR retrofit adaptation, not Steerling's published
+loss. It must pass matched semantic and fluency tests before replacing the
+larger recipe.
