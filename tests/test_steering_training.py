@@ -61,6 +61,21 @@ class SteeringTrainingTests(unittest.TestCase):
                                         torch.tensor([True, True]), 0, [3, 0])
         self.assertEqual(positions.tolist(), [[True, False, False, False], [False]*4])
 
+    def test_local_ce_uses_actual_shifted_target_not_any_concept_keyword(self):
+        from types import SimpleNamespace
+        from concept_retrofit.training.steering import injected_next_token_loss
+        model = SimpleNamespace(logits=lambda h:h)
+        inputs = {'input_ids':torch.tensor([[0,1,2]]),'attention_mask':torch.ones(1,3,dtype=torch.long)}
+        positions = torch.tensor([[True,False,False]])
+        correct = torch.tensor([[[0.,5.,0.],[0.,0.,0.],[0.,0.,0.]]],requires_grad=True)
+        wrong = torch.tensor([[[0.,0.,5.],[0.,0.,0.],[0.,0.,0.]]],requires_grad=True)
+        self.assertLess(float(injected_next_token_loss(model,correct,inputs,positions)),
+                        float(injected_next_token_loss(model,wrong,inputs,positions)))
+        loss = injected_next_token_loss(model,wrong,inputs,positions)
+        loss.backward()
+        self.assertLess(float(wrong.grad[0,0,1]),0)
+        self.assertEqual(float(wrong.grad[0,1:].abs().sum()),0)
+
     def test_hook_cleanup_teacher_invariance_and_train_gradients(self):
         with tempfile.TemporaryDirectory() as directory:
             _, model_path = fixture(directory)
@@ -148,9 +163,9 @@ class SteeringTrainingTests(unittest.TestCase):
             entries = build_lexicon(data, tokenizer, lexicon, [0,1],
                                     max_documents=100, min_count=2, minimum_lift=1.1)
             self.assertEqual(len(entries), 2)
-            steering_cfg = replace(cfg, steering_mode='layer', steering_lexicon=str(lexicon), steering_tau=.1, steering_balanced=True)
+            steering_cfg = replace(cfg, steering_mode='layer', steering_lexicon=str(lexicon), steering_tau=.1, steering_balanced=True, injected_ce_weight=1.)
             checkpoint = train_stage(data, root/'steering', steering_cfg, 'steering', frozen)
-            _, _, trained, _, module = load_trained(data, checkpoint)
+            _, trained_corpus, trained, trained_tokenizer, module = load_trained(data, checkpoint)
             state = torch.load(checkpoint, weights_only=True)
             self.assertTrue(state['steering_lexicon_sha256'])
             self.assertTrue(state['adapters'])
@@ -162,6 +177,14 @@ class SteeringTrainingTests(unittest.TestCase):
             self.assertEqual(examples['intervention_method'], 'layer')
             self.assertEqual(examples['examples'][2]['injection_tau'], .1)
             self.assertEqual(examples['examples'][3]['suppression_logit_strength'], 1.)
+            from concept_retrofit.evaluation.steering import generate_with_model
+            calibrated_cfg = replace(steering_cfg, steering_inference_tau=.02)
+            generate_with_model(calibrated_cfg, trained_corpus,
+                                trained, trained_tokenizer, module,root/'calibrated.json',max_new_tokens=1)
+            calibrated = json.loads((root/'calibrated.json').read_text())
+            self.assertEqual(calibrated['training_tau'],.1)
+            self.assertEqual(calibrated['tau'],.02)
+            self.assertEqual(calibrated['examples'][2]['injection_tau'],.02)
             self.assertFalse(any(b._forward_pre_hooks for b in trained.backbone.layers))
 
 

@@ -62,6 +62,7 @@ def main():
     # adding the inference mechanisms. Keep the frozen source's stage/adapters.
     state = torch.load(source, map_location='cpu', weights_only=True)
     state['config'].update(steering_mode='layer', steering_tau=cfg.steering_tau,
+        steering_inference_tau=cfg.steering_inference_tau,
         steering_start_layer=cfg.steering_start_layer, suppression_strength=cfg.suppression_strength)
     before = out/'before-layer.pt'
     if not before.exists():

@@ -112,6 +112,27 @@ def intervention_losses(model, parts, reconstructed, positions, concept, tokens,
     return respond, express / len(states)
 
 
+def injected_next_token_loss(model, reconstructed, inputs, positions, block=16):
+    """Preserve the actual causal targets where concept-set losses are applied.
+
+    Global LM CE averages over many uninjected positions. This additional local
+    CE prevents a few injected states from preferring any lifted keyword over
+    their correct next token. It is a retrofit-specific objective, not Eq. 32.
+    """
+    valid = positions[:, :-1] & inputs['attention_mask'][:, :-1].bool() & inputs['attention_mask'][:, 1:].bool()
+    states = reconstructed[:, :-1][valid]
+    targets = inputs['input_ids'][:, 1:][valid]
+    if not len(targets):
+        return reconstructed.sum() * 0
+    from torch.utils.checkpoint import checkpoint
+    def block_loss(h, y):
+        return F.cross_entropy(model.logits(h), y, reduction='sum')
+    total = states.sum() * 0
+    for offset in range(0,len(states),block):
+        total = total + checkpoint(block_loss,states[offset:offset+block],targets[offset:offset+block],use_reentrant=False)
+    return total / len(targets)
+
+
 def balanced_pools(corpus, tokenizer, lexicon, max_length, max_documents):
     """Find train chunks with actual eligible causal targets for each concept."""
     pools = {key: [] for key in lexicon}

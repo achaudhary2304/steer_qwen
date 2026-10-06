@@ -34,7 +34,8 @@ def generate_with_model(cfg, corpus, model, tokenizer, module, output,
     prompts = prompts or ['Write a short story about a quiet afternoon.', 'Describe a surprising discovery in three sentences.']
     if layer_mode:
         from concept_retrofit.training.steering import calibrated_direction, suppress_logits
-        injected, unit_direction, peak = calibrated_direction(model, module, concept_index, cfg.steering_tau * strength)
+        inference_tau = cfg.steering_inference_tau if cfg.steering_inference_tau is not None else cfg.steering_tau
+        injected, unit_direction, peak = calibrated_direction(model, module, concept_index, inference_tau * strength)
         start_layer = cfg.steering_start_layer if cfg.steering_start_layer >= 0 else len(model.backbone.layers)-cfg.top_layers
         positive_alignment = (model.head.weight @ unit_direction.to(model.head.weight.dtype)).float().relu()
     results = []
@@ -92,7 +93,7 @@ def generate_with_model(cfg, corpus, model, tokenizer, module, output,
                 'concept_id': corpus.ids[concept_index], 'concept_index': concept_index,
                 'intervention_value': intervention[concept_index] if intervention and not layer_mode else None,
                 'intervention_method': 'calibrated-layer-injection' if layer_mode else 'coefficient-override',
-                'injection_tau': cfg.steering_tau * strength if layer_mode and intervention else None,
+                'injection_tau': inference_tau * strength if layer_mode and intervention else None,
                 'suppression_logit_strength': cfg.suppression_strength * strength if layer_mode and condition == 'suppress' else None,
                 'response': tokenizer.decode(ids[0, original_ids.shape[1]:], skip_special_tokens=True),
                 'new_tokens': ids.shape[1] - original_ids.shape[1],
@@ -105,7 +106,8 @@ def generate_with_model(cfg, corpus, model, tokenizer, module, output,
         'strength': strength, 'intervention_method': cfg.steering_mode,
         'amplification_value': strength if not layer_mode else None,
         'suppression_value': 1. - strength if not layer_mode else None,
-        'tau': cfg.steering_tau if layer_mode else None,
+        'tau': inference_tau if layer_mode else None,
+        'training_tau': cfg.steering_tau if layer_mode else None,
         'suppression_strength': cfg.suppression_strength if layer_mode else None,
         'warning': 'Inspection examples, not semantic steering success scores or activation-baseline comparisons',
         'examples': results})

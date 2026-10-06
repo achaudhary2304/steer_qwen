@@ -409,3 +409,27 @@ across the available taxonomy groups; actual names/counts are written to
 not just the evaluation concepts. `bash scripts/run_experiment.sh 100m` now
 appends the combined schedule by default. The already-running process uses its
 original loaded code, so a waiting queue connects its final LoRA checkpoint.
+
+### Amplification calibration
+
+The 5,000-step pilot generated repeated concept words at injection target
+`tau=0.1`, despite fluent unsteered output. Training and inference injection
+targets can now be recorded separately: `steering_tau` is the training target;
+`steering_inference_tau` overrides it only for generation. The scaled recipe
+uses an inference target of `0.02`. This is a calibration correction, not proof
+that all concepts steer successfully. Before/after audits use the same target.
+
+Run a matched strength diagnostic on a saved model, keeping greedy decoding:
+
+```bash
+python scripts/steering_strength_sweep.py --data data/atlas-100m \
+  --checkpoint runs/steering-pilot-v2/training/last.pt \
+  --out runs/amplification-strength-test --strengths 0.05,0.1,0.2,1 \
+  --judge --save-strength 0.2
+```
+
+Strength multiplies the checkpoint's training target (`0.1` in this pilot), so
+`0.2` corresponds to an inference target of `0.02`. The separate `calibrated.pt`
+contains unchanged weights with the tested inference setting. Raw text,
+repetition diagnostics, and paced GPT-OSS judge results remain in the output.
+The small failure-focused diagnostic is not a held-out steering benchmark.

@@ -58,9 +58,11 @@ class RunConfig:
     residual_warmup: bool = True
     steering_lexicon: str | None = None
     steering_tau: float = 0.02
+    steering_inference_tau: float | None = None
     steering_start_layer: int = -1
     respond_weight: float = 1.0
     express_weight: float = 1.0
+    injected_ce_weight: float = 0.0
     suppression_strength: float = 1.0
 
     def validate(self):
@@ -68,6 +70,8 @@ class RunConfig:
             raise ValueError('steering_mode must be coefficient or layer')
         if not math.isfinite(self.steering_tau) or self.steering_tau <= 0:
             raise ValueError('steering_tau must be finite and positive')
+        if self.steering_inference_tau is not None and (not math.isfinite(self.steering_inference_tau) or self.steering_inference_tau <= 0):
+            raise ValueError('steering_inference_tau must be finite and positive')
         if self.steering_start_layer < -1:
             raise ValueError('steering_start_layer must be -1 or a layer index')
         if self.steps < 1 or self.batch_size < 1 or self.max_length < 2:
@@ -88,7 +92,7 @@ class RunConfig:
             raise ValueError('Learning rates must be positive')
         if any(getattr(self, name) < 0 for name in (
             'ce_weight', 'kl_weight', 'concept_weight', 'reconstruction_weight',
-            'residual_weight', 'leakage_weight', 'respond_weight', 'express_weight', 'suppression_strength')):
+            'residual_weight', 'leakage_weight', 'respond_weight', 'express_weight', 'injected_ce_weight', 'suppression_strength')):
             raise ValueError('Loss weights must be nonnegative')
 
 
@@ -366,12 +370,17 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
         if stage == 'steering':
             respond = hidden.sum() * 0
             express = hidden.sum() * 0
+            injected_ce = hidden.sum() * 0
             if injection_count:
                 respond, express = intervention_losses(model, parts, reconstructed, positions, injected_concept, entry['tokens'])
+                if cfg.injected_ce_weight:
+                    from .training.steering import injected_next_token_loss
+                    injected_ce = injected_next_token_loss(model,reconstructed,inputs,positions)
             # Match the dedicated phase's intent: language objective + respond
             # + express. Keep teacher KL as a retrofit preservation addition;
             # do not impose chunk/reconstruction/independence losses here.
-            loss = cfg.ce_weight * ce + cfg.kl_weight * kl + cfg.respond_weight * respond + cfg.express_weight * express
+            loss = (cfg.ce_weight * ce + cfg.kl_weight * kl + cfg.respond_weight * respond +
+                    cfg.express_weight * express + cfg.injected_ce_weight * injected_ce)
         if not torch.isfinite(loss):
             raise RuntimeError('Nonfinite loss; previous checkpoint retained')
         optimizer.zero_grad(set_to_none=True)
@@ -386,6 +395,7 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
         if stage == 'steering' and ((step+1) % max(1, cfg.steps // 100) == 0):
             print(f'STEERING_TRAIN step={step+1}/{cfg.steps} concept={injected_concept} '
                   f'positions={injection_count} respond={float(respond):.6f} express={float(express):.6f} '
+                  f'injected_ce={float(injected_ce):.6f} '
                   f'tau={cfg.steering_tau}', flush=True)
         complete = (step + 1 == cfg.steps or bool(cfg.training_tokens and tokens_seen >= cfg.training_tokens))
         milestone = bool(cfg.diagnostics_every_tokens and tokens_seen // cfg.diagnostics_every_tokens >

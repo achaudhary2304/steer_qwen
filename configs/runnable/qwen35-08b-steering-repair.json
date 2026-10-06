@@ -2,7 +2,7 @@
   "model": "Qwen/Qwen3.5-0.8B",
   "revision": "2fc06364715b967f1860aea9cf38778875588b17",
   "training_tokens": 0,
-  "steps": 5000,
+  "steps": 1000,
   "max_length": 256,
   "batch_size": 4,
   "evaluate_every": 500,
@@ -25,10 +25,13 @@
   "steering_tau": 0.1,
   "steering_inference_tau": 0.02,
   "steering_start_layer": 18,
-  "respond_weight": 1.0,
-  "express_weight": 1.0,
+  "respond_weight": 0.25,
+  "express_weight": 0.25,
   "suppression_strength": 1.0,
   "bottleneck_lr": 3e-05,
   "lora_lr": 1e-05,
-  "steering_balanced": true
+  "steering_balanced": true,
+  "injected_ce_weight": 1.0,
+  "carry_optimizer": true,
+  "residual_warmup": false
 }

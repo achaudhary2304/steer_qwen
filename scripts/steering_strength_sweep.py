@@ -34,14 +34,17 @@ def main():
     parser.add_argument('--strengths', default='0.05,0.1,0.2,0.5,1')
     parser.add_argument('--max-new-tokens', type=int, default=48)
     parser.add_argument('--judge', action='store_true')
+    parser.add_argument('--save-strength', type=float, help='Save a separate checkpoint with this tested inference setting; weights unchanged')
     args = parser.parse_args()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=False)
     strengths = tuple(float(s) for s in args.strengths.split(','))
     if len(strengths) != len(set(strengths)):
         raise ValueError('Duplicate strengths')
+    if args.save_strength is not None and args.save_strength not in strengths:
+        raise ValueError('Saved strength must be among the tested strengths')
     cfg, corpus, model, tokenizer, module = load_trained(args.data, args.checkpoint)
-    cfg = replace(cfg, steering_mode='layer')
+    cfg = replace(cfg, steering_mode='layer', steering_inference_tau=None)
     lookup = {c['name'].casefold():i for i,c in enumerate(corpus.manifest['concepts'])}
     selected = [{'concept_index':lookup[n.strip().casefold()],
                  'concept_id':corpus.ids[lookup[n.strip().casefold()]],
@@ -80,6 +83,13 @@ def main():
             summaries[str(strength)] = judge_folder(folder)
             save_json(out/'judge-summaries.json',summaries)
     status = json.loads((out/'status.json').read_text())
+    if args.save_strength is not None:
+        state = torch.load(args.checkpoint,map_location='cpu',weights_only=True)
+        state['config'].update(steering_mode='layer',steering_inference_tau=cfg.steering_tau*args.save_strength)
+        state['inference_calibration'] = {'source':args.checkpoint,'diagnostic':str(out),
+                                         'weights_changed':False,'strength':args.save_strength}
+        torch.save(state,out/'calibrated.pt')
+        status['calibrated_checkpoint'] = str(out/'calibrated.pt')
     status.update(state='complete', judged=bool(args.judge),
                   caveat='Small diagnostic on selected failures, not a held-out steering benchmark; repetition alone does not measure semantic success.')
     save_json(out/'status.json',status)
