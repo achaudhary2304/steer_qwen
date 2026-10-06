@@ -51,3 +51,14 @@ class MergedScheduleTests(unittest.TestCase):
         self.assertEqual([stage for _,stage,_ in phases], ['steering','lora']*4)
         self.assertEqual(sum(n for _,stage,n in phases if stage=='steering'),20)
         self.assertEqual(phases[-1],('capability-04','lora',7))
+
+
+class RepetitionDiagnosticsTests(unittest.TestCase):
+    def test_phrase_loops_are_detected_even_without_consecutive_word_repeats(self):
+        spec = importlib.util.spec_from_file_location('steering_strength_sweep', Path(__file__).resolve().parents[1]/'scripts/steering_strength_sweep.py')
+        sweep = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sweep)
+        loop = 'guitar strings hum softly guitar strings hum softly guitar strings hum softly'
+        self.assertEqual(sweep.longest_word_run(loop),1)
+        self.assertGreater(sweep.repeated_fourgram_fraction(loop),.5)
+        self.assertEqual(sweep.repeated_fourgram_fraction('She played a quiet song before dinner.'),0)

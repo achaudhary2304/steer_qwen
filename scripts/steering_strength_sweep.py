@@ -25,6 +25,13 @@ def longest_word_run(text):
     return best
 
 
+def repeated_fourgram_fraction(text):
+    """Phrase-loop proxy; consecutive-word runs miss repeated sentences."""
+    words = text.casefold().split()
+    grams = [tuple(words[i:i+4]) for i in range(max(0,len(words)-3))]
+    return (len(grams)-len(set(grams)))/len(grams) if grams else 0.
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data', required=True)
@@ -73,6 +80,7 @@ def main():
             rows.extend({'concept':concept['metadata']['name'],'strength':strength,
                          'tau':cfg.steering_tau*strength, 'condition':e['condition'],
                          'longest_word_run':longest_word_run(e['response']),
+                         'repeated_fourgram_fraction':repeated_fourgram_fraction(e['response']),
                          'response':e['response']} for e in examples)
             save_json(out/'examples.json',rows)
     del model,module,tokenizer,corpus
