@@ -55,6 +55,7 @@ def main() -> None:
         if name in ('probe', 'train', 'run-all'):
             command.add_argument('--config', required=True, help='runnable RunConfig JSON')
         if name == 'run-all':
+            command.add_argument('--merged-steering', action='store_true', help='append one interleaved steering/capability schedule')
             command.add_argument('--steering-config', help='optional separate intervention-training config, run after LoRA')
         if name == 'train':
             command.add_argument('--stage', choices=('frozen', 'lora', 'steering'), default='frozen')
@@ -145,7 +146,16 @@ def main() -> None:
                         args.resume and (stage_out / 'last.pt').exists())
                 evaluate_checkpoint(args.data, stage_out / 'best.pt', out / f'{stage}-test.json')
                 generate_examples(args.data, stage_out / 'best.pt', out / f'{stage}-examples.json')
-            if args.steering_config:
+            if args.merged_steering:
+                import subprocess, sys
+                command = [sys.executable,'-u',str(Path(__file__).resolve().parents[2]/'scripts/merged_retrofit.py'),
+                           '--data',args.data,'--checkpoint',str(out/'lora/best.pt'),
+                           '--out',str(out/'merged'),'--config',args.steering_config or
+                           'configs/runnable/qwen35-08b-steering-scaled.json']
+                if args.resume:
+                    command += ['--resume']
+                subprocess.run(command,check=True)
+            elif args.steering_config:
                 steering_cfg = load_run_config(args.steering_config)
                 stage_out = out / 'steering'
                 complete = (stage_out / 'status.json').exists() and json.loads(

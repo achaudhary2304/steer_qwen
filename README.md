@@ -342,3 +342,70 @@ balances repeated exposures, not necessarily unique data. `--lexicon-documents
 and evaluates four prompts per concept before/after (16 judge groups each).
 This remains four concepts with approximate token labels, not 1,024 independently
 validated steering controls.
+
+
+To append steering to an **already-running** main experiment, use
+`scripts/steering_after_main.py --main runs/100m/experiment --parent-pid <PID>
+--data data/atlas-100m --out runs/100m/steering-after-lora`. It polls every five
+minutes and starts only after the frozen and LoRA stages complete and the parent
+trainer exits. This stage initializes both the bottleneck and existing LoRA
+adapters from `lora/best.pt`; independent pilot adapter weights are not added
+together. Queue state is written to `<out>-queue.json`.
+
+This sequential schedule is a retrofit experiment, not Steerling's exact
+schedule: Steerling interleaves steering phases early in mid-training, then
+continues ordinary capability training. The standalone pilots remain diagnostic
+controls; the queued stage produces the combined main-plus-steering model.
+
+
+### One combined model with interleaved steering
+
+`scripts/merged_retrofit.py` continues the completed main LoRA checkpoint and
+retains the same bottleneck, LoRA parameters, and Adam state across all phases.
+It fits weak lexical resources for the entire known vocabulary and reports the
+eligible subset in `coverage.json`; it does not claim unsupported labels are
+trained steering controls. The schedule alternates four 5,000-step steering
+phases with three 2,000-step capability phases and a final 5,000-step capability
+phase. Capability phases keep the trained residual scale instead of restarting
+an identity warmup. Teacher KL is retained as a retrofit-specific addition.
+
+Matched content audits run before the schedule and after every phase to detect
+steering improvements or forgetting. Final held-out interpretability/language
+metrics go to `final-test.json`; the deliverable is **one `final.pt` checkpoint**
+containing both the bottleneck and trained LoRA adapters. Generated examples
+now include signed per-token named/unknown/residual contributions, suppression
+logit corrections, and the floating-point rounding gap. These are output-layer
+attributions, not full explanations of the Transformer computation.
+
+Append this schedule without interrupting a running main trainer:
+
+```bash
+python -u scripts/steering_after_main.py --merged \
+  --main runs/100m/experiment --parent-pid <PID> \
+  --data data/atlas-100m --out runs/100m/merged \
+  > runs/100m/merged-queue.log 2>&1
+```
+
+Run directly from a completed main model:
+
+```bash
+python -u scripts/merged_retrofit.py --data data/atlas-100m \
+  --checkpoint runs/100m/experiment/lora/best.pt --out runs/100m/merged
+```
+
+Remaining differences from Steerling are material: Qwen is autoregressive,
+Atlas token positions here are lexical proxies, chunk scores use mean pooling,
+residual pressure uses scaling rather than their dropout, and independence is
+an adversarial objective. Original Qwen pretraining provenance is unavailable.
+The script records these differences in its final status. Architecture and
+training components being present do not establish comparable capability;
+benchmarks and semantic intervention evaluations must demonstrate that.
+
+
+The combined run evaluates up to **32 eligible content concepts** before and
+after all training, with eight monitored after each phase. Selection spreads
+across the available taxonomy groups; actual names/counts are written to
+`evaluation-concepts.json`. Training eligibility spans the full known bank,
+not just the evaluation concepts. `bash scripts/run_experiment.sh 100m` now
+appends the combined schedule by default. The already-running process uses its
+original loaded code, so a waiting queue connects its final LoRA checkpoint.

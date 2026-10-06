@@ -54,7 +54,7 @@ def generate_with_model(cfg, corpus, model, tokenizer, module, output,
                     results.append(dict(cached))
                     continue
             ids = original_ids.clone()
-            concept_scores, sparse_activations = [], []
+            concept_scores, sparse_activations, attributions = [], [], []
             for _ in range(max_new_tokens):
                 inputs = {'input_ids': ids, 'attention_mask': torch.ones_like(ids)}
                 if condition == 'base':
@@ -74,9 +74,17 @@ def generate_with_model(cfg, corpus, model, tokenizer, module, output,
                     concept_scores.append(float(parts.known_logits.sigmoid()[0, concept_index]))
                     sparse_activations.append(float(parts.known_activations[0, concept_index]))
                     logits = model.logits(reconstructed)
+                    native_logits = logits
                     if layer_mode and condition == 'suppress':
                         logits = suppress_logits(logits, model.head, unit_direction, cfg.suppression_strength * strength, positive_alignment)
                 next_id = logits.argmax(-1, keepdim=True)
+                if condition != 'base':
+                    from .attribution import token_attribution
+                    attribution = token_attribution(model,module,parts,reconstructed,next_id.item(),
+                        cfg.residual_scale,corpus,float(native_logits[0,next_id.item()]),
+                        float(logits[0,next_id.item()]),None if layer_mode else intervention)
+                    attribution['token_text'] = tokenizer.decode([next_id.item()])
+                    attributions.append(attribution)
                 ids = torch.cat((ids, next_id), -1)
                 if next_id.item() == tokenizer.eos_token_id:
                     break
@@ -88,6 +96,7 @@ def generate_with_model(cfg, corpus, model, tokenizer, module, output,
                 'suppression_logit_strength': cfg.suppression_strength * strength if layer_mode and condition == 'suppress' else None,
                 'response': tokenizer.decode(ids[0, original_ids.shape[1]:], skip_special_tokens=True),
                 'new_tokens': ids.shape[1] - original_ids.shape[1],
+                'token_attributions':attributions,
                 'factual_concept_score_mean': sum(concept_scores) / len(concept_scores) if concept_scores else None,
                 'factual_sparse_activation_mean': sum(sparse_activations) / len(sparse_activations) if sparse_activations else None,
                 'factual_topk_active_fraction': sum(a > 0 for a in sparse_activations) / len(sparse_activations) if sparse_activations else None})

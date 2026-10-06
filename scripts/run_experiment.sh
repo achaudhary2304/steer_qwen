@@ -25,6 +25,10 @@ case "$profile" in
     ;;
   *) echo 'Usage: bash scripts/run_experiment.sh [debug|100m]' >&2; exit 2 ;;
 esac
+extra_args=()
+if [ "$profile" = "100m" ]; then
+  extra_args=(--merged-steering)
+fi
 mkdir -p "runs/$profile"
 if [ ! -f "$dataset/manifest.json" ]; then
   python -u -m concept_retrofit.cli prepare-atlas --out "$dataset" \
@@ -34,5 +38,5 @@ if [ ! -f "$dataset/manifest.json" ]; then
     2>&1 | tee -a "runs/$profile/prepare.log"
 fi
 python -u -m concept_retrofit.cli run-all --data "$dataset" --config "$config" \
-  --out "runs/$profile/experiment" --resume \
+  --out "runs/$profile/experiment" --resume "${extra_args[@]}" \
   2>&1 | tee -a "runs/$profile/pipeline.log"

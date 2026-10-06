@@ -115,6 +115,7 @@ def intervention_losses(model, parts, reconstructed, positions, concept, tokens,
 def balanced_pools(corpus, tokenizer, lexicon, max_length, max_documents):
     """Find train chunks with actual eligible causal targets for each concept."""
     pools = {key: [] for key in lexicon}
+    by_atlas = {entry['atlas_id']:(key,set(entry['tokens'])) for key,entry in lexicon.items()}
     records = corpus.splits['train'][:max_documents]
     for offset in range(0, len(records), 256):
         batch = records[offset:offset+256]
@@ -123,9 +124,11 @@ def balanced_pools(corpus, tokenizer, lexicon, max_length, max_documents):
             if not 2 <= len(ids) <= max_length:
                 continue
             target_ids = set(ids[1:])
-            for key, entry in lexicon.items():
-                if entry['atlas_id'] in row['label_ids'] and target_ids.intersection(entry['tokens']):
-                    pools[key].append(offset+local)
+            for atlas_id in row['label_ids']:
+                if atlas_id in by_atlas:
+                    key, tokens = by_atlas[atlas_id]
+                    if target_ids.intersection(tokens):
+                        pools[key].append(offset+local)
     missing = [lexicon[key]['name'] for key, values in pools.items() if not values]
     if missing:
         raise ValueError('No eligible steering training chunks for: '+', '.join(missing))

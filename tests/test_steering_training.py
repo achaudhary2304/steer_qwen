@@ -34,6 +34,26 @@ class SteeringTrainingTests(unittest.TestCase):
         suppressed = suppress_logits(logits, model.head, unit, .5)
         torch.testing.assert_close(suppressed, torch.tensor([[4., 5., 5.]]))
 
+    def test_attribution_tracks_actual_control_and_suppression_logit_change(self):
+        from types import SimpleNamespace
+        from concept_retrofit.evaluation.attribution import token_attribution
+        model = SimpleNamespace(head=nn.Linear(2,1,bias=False))
+        module = ConceptBottleneck(2,2,2,1,2,1)
+        with torch.no_grad():
+            model.head.weight.copy_(torch.tensor([[2.,3.]]))
+            module.known_encoder.weight.zero_();module.known_encoder.bias.zero_()
+            module.known_vectors.copy_(torch.eye(2))
+            module.unknown_left.zero_();module.unknown_bias.zero_()
+        corpus = SimpleNamespace(ids=[10,20],manifest={'concepts':[{'name':'a'},{'name':'b'}]})
+        reconstructed,parts = module(torch.tensor([[2.,3.]]),.75,{0:2.})
+        native = float(model.head(reconstructed)[0,0])
+        result = token_attribution(model,module,parts,reconstructed,0,.75,corpus,native,native-.4,{0:2.})
+        self.assertAlmostEqual(result['components']['named'],5.5)
+        self.assertAlmostEqual(result['components']['residual'],7.875)
+        self.assertAlmostEqual(result['components']['steering_logit_adjustment'],-.4)
+        self.assertAlmostEqual(result['rounding_gap'],0.,places=5)
+        self.assertEqual(result['largest_named_contributions'][0]['name'],'a')
+
     def test_causal_mask_excludes_padding_and_unassigned_chunks(self):
         inputs = {'input_ids': torch.tensor([[4, 3, 4, 0], [4, 3, 4, 0]]),
                   'attention_mask': torch.tensor([[1, 1, 1, 0], [1, 1, 1, 0]])}
@@ -67,6 +87,39 @@ class SteeringTrainingTests(unittest.TestCase):
             self.assertGreater(float(module.known_encoder.weight.grad.abs().sum()), 0)
             self.assertGreater(sum(float(p.grad.abs().sum()) for n,p in model.named_parameters()
                                    if n.endswith('.b') and p.grad is not None), 0)
+
+    def test_steering_keeps_initialized_main_lora_weights(self):
+        from unittest.mock import patch
+        from concept_retrofit.io import digest, save_json
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data, model_path = fixture(root)
+            cfg = RunConfig(model=str(model_path), revision=None, device='cpu', steps=2,
+                evaluate_every=1, evaluation_documents=4, batch_size=4,
+                unknown_features=8, unknown_rank=4, known_topk=1, unknown_topk=2,
+                max_length=16, top_layers=1, lora_rank=2,
+                maximum_nll_increase=None, maximum_validation_kl=None)
+            frozen = train_stage(data, root/'frozen', cfg)
+            main_lora = train_stage(data, root/'lora', cfg, 'lora', frozen)
+            source = torch.load(main_lora, weights_only=True)
+            self.assertGreater(sum(float(v.abs().sum()) for n,v in source['adapters'].items() if n.endswith('.b')), 0)
+            lexicon = root/'lexicon.json'
+            manifest = json.loads((data/'manifest.json').read_text())
+            # Controlled causal token locations test initialization, not semantics.
+            save_json(lexicon, {'manifest_sha256':digest(data/'manifest.json'),
+                'documents':100, 'concepts': {str(i):{'atlas_id':c, 'name':'test', 'tokens':[5]}
+                                            for i,c in enumerate(manifest['concept_ids'])}})
+            steering = replace(cfg, steering_mode='layer', steering_lexicon=str(lexicon),
+                               steering_balanced=True, carry_optimizer=True, residual_warmup=False)
+            with patch.object(torch.optim.AdamW, 'step', return_value=None):
+                trained = train_stage(data, root/'combined', steering, 'steering', main_lora)
+            combined = torch.load(trained, weights_only=True)
+            for key, value in source['optimizer']['state'].items():
+                torch.testing.assert_close(value['step'], combined['optimizer']['state'][key]['step'])
+            for name, value in source['adapters'].items():
+                torch.testing.assert_close(value, combined['adapters'][name], atol=0, rtol=0)
+            for name, value in source['bottleneck'].items():
+                torch.testing.assert_close(value, combined['bottleneck'][name], atol=0, rtol=0)
 
     def test_real_qwen_steering_stage_saves_and_loads(self):
         with tempfile.TemporaryDirectory() as directory:

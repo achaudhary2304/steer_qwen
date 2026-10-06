@@ -54,6 +54,8 @@ class RunConfig:
     cpu_threads: int = 4
     steering_mode: str = 'coefficient'
     steering_balanced: bool = False
+    carry_optimizer: bool = False
+    residual_warmup: bool = True
     steering_lexicon: str | None = None
     steering_tau: float = 0.02
     steering_start_layer: int = -1
@@ -246,6 +248,16 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
     if adapters:
         groups.append({'params': list(adapters.values()), 'lr': cfg.lora_lr})
     optimizer = torch.optim.AdamW(groups)
+    if cfg.carry_optimizer and not resume:
+        if not initialize:
+            raise ValueError('Optimizer continuation requires an initialization checkpoint')
+        optimizer.load_state_dict(previous['optimizer'])
+        for group, lr in zip(optimizer.param_groups, [cfg.bottleneck_lr, cfg.lora_lr]):
+            group['lr'] = lr
+        adversary.load_state_dict(previous['adversary'])
+        adv_optimizer.load_state_dict(previous['adv_optimizer'])
+        for group in adv_optimizer.param_groups:
+            group['lr'] = cfg.bottleneck_lr
     generator = torch.Generator().manual_seed(cfg.seed)
     first_step, tokens_seen, best = 0, 0, float('inf')
     steering_counts = {'positions': 0, 'steps_with_injection': 0, 'by_concept': {}}
@@ -302,7 +314,8 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
         if stage == 'steering':
             from .training.steering import calibrated_direction, injection_positions, intervention_losses
             candidates = []
-            for key, entry in lexicon.items():
+            entries = [(str(preferred_concept), lexicon[str(preferred_concept)])] if preferred_concept is not None else lexicon.items()
+            for key, entry in entries:
                 selected_positions = injection_positions(inputs, labels, label_valid, int(key), entry['tokens'])
                 if selected_positions.any():
                     candidates.append((int(key), entry, selected_positions))
@@ -327,7 +340,9 @@ def train_stage(data, output, cfg, stage='frozen', initialize=None, resume=False
         else:
             hidden = model.hidden(inputs)
         progress = min(1., tokens_seen / max(1, cfg.training_tokens * 0.5)) if cfg.training_tokens else min(1., (step+1) / max(1, cfg.steps * 0.5))
-        scale = cfg.residual_scale if stage == 'steering' else 1. - (1. - cfg.residual_scale) * progress
+        if not cfg.residual_warmup:
+            progress = 1.
+        scale = cfg.residual_scale if stage == 'steering' or not cfg.residual_warmup else 1. - (1. - cfg.residual_scale) * progress
         reconstructed, parts = module(hidden.float(), scale)
         mask = inputs['attention_mask'].bool()
         ce, kl, _, n = language_losses(model, teacher, reconstructed, inputs['input_ids'], mask)
