@@ -56,14 +56,16 @@ def generate_with_model(cfg, corpus, model, tokenizer, module, output,
                     continue
             ids = original_ids.clone()
             concept_scores, sparse_activations, attributions = [], [], []
-            for _ in range(max_new_tokens):
+            for token_step in range(max_new_tokens):
                 inputs = {'input_ids': ids, 'attention_mask': torch.ones_like(ids)}
                 if condition == 'base':
                     with model.teacher():
                         hidden = model.hidden(inputs)
                         logits = model.logits(hidden[:, -1])
                 else:
-                    if layer_mode and intervention:
+                    amplification_active = (condition != 'amplify' or cfg.amplification_token_budget == 0 or
+                                            token_step < cfg.amplification_token_budget)
+                    if layer_mode and intervention and amplification_active:
                         positions = torch.zeros_like(ids, dtype=torch.bool)
                         positions[:, -1] = True
                         with model.inject(injected if condition == 'amplify' else -injected, positions, start_layer):
@@ -93,6 +95,7 @@ def generate_with_model(cfg, corpus, model, tokenizer, module, output,
                 'concept_id': corpus.ids[concept_index], 'concept_index': concept_index,
                 'intervention_value': intervention[concept_index] if intervention and not layer_mode else None,
                 'intervention_method': 'calibrated-layer-injection' if layer_mode else 'coefficient-override',
+                'amplification_token_budget':cfg.amplification_token_budget if layer_mode and condition == 'amplify' else None,
                 'injection_tau': inference_tau * strength if layer_mode and intervention else None,
                 'suppression_logit_strength': cfg.suppression_strength * strength if layer_mode and condition == 'suppress' else None,
                 'response': tokenizer.decode(ids[0, original_ids.shape[1]:], skip_special_tokens=True),
@@ -108,6 +111,7 @@ def generate_with_model(cfg, corpus, model, tokenizer, module, output,
         'suppression_value': 1. - strength if not layer_mode else None,
         'tau': inference_tau if layer_mode else None,
         'training_tau': cfg.steering_tau if layer_mode else None,
+        'amplification_token_budget':cfg.amplification_token_budget if layer_mode else None,
         'suppression_strength': cfg.suppression_strength if layer_mode else None,
         'warning': 'Inspection examples, not semantic steering success scores or activation-baseline comparisons',
         'examples': results})

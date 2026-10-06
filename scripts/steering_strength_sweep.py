@@ -40,6 +40,7 @@ def main():
     parser.add_argument('--concepts', default='Music,Home cooking,Astronomy,Computer Science')
     parser.add_argument('--strengths', default='0.05,0.1,0.2,0.5,1')
     parser.add_argument('--max-new-tokens', type=int, default=48)
+    parser.add_argument('--amplification-token-budget', type=int, default=0)
     parser.add_argument('--judge', action='store_true')
     parser.add_argument('--save-strength', type=float, help='Save a separate checkpoint with this tested inference setting; weights unchanged')
     args = parser.parse_args()
@@ -51,7 +52,9 @@ def main():
     if args.save_strength is not None and args.save_strength not in strengths:
         raise ValueError('Saved strength must be among the tested strengths')
     cfg, corpus, model, tokenizer, module = load_trained(args.data, args.checkpoint)
-    cfg = replace(cfg, steering_mode='layer', steering_inference_tau=None)
+    cfg = replace(cfg, steering_mode='layer', steering_inference_tau=None,
+                  amplification_token_budget=args.amplification_token_budget)
+    cfg.validate()
     lookup = {c['name'].casefold():i for i,c in enumerate(corpus.manifest['concepts'])}
     selected = [{'concept_index':lookup[n.strip().casefold()],
                  'concept_id':corpus.ids[lookup[n.strip().casefold()]],
@@ -60,6 +63,9 @@ def main():
     save_json(out/'status.json', {'state':'running','checkpoint':args.checkpoint,
         'concepts':[c['metadata']['name'] for c in selected], 'strengths':strengths,
         'base_tau':cfg.steering_tau, 'decoding':'greedy; unchanged across strengths'})
+    status = json.loads((out/'status.json').read_text())
+    status['amplification_token_budget'] = cfg.amplification_token_budget
+    save_json(out/'status.json',status)
     rows, groups = [], []
     for strength in strengths:
         folder = out/f'strength-{strength:g}'
@@ -94,6 +100,7 @@ def main():
     if args.save_strength is not None:
         state = torch.load(args.checkpoint,map_location='cpu',weights_only=True)
         state['config'].update(steering_mode='layer',steering_inference_tau=cfg.steering_tau*args.save_strength)
+        state['config']['amplification_token_budget'] = cfg.amplification_token_budget
         state['inference_calibration'] = {'source':args.checkpoint,'diagnostic':str(out),
                                          'weights_changed':False,'strength':args.save_strength}
         torch.save(state,out/'calibrated.pt')

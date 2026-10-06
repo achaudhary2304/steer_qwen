@@ -59,6 +59,7 @@ class RunConfig:
     steering_lexicon: str | None = None
     steering_tau: float = 0.02
     steering_inference_tau: float | None = None
+    amplification_token_budget: int = 0
     steering_start_layer: int = -1
     respond_weight: float = 1.0
     express_weight: float = 1.0
@@ -72,6 +73,8 @@ class RunConfig:
             raise ValueError('steering_tau must be finite and positive')
         if self.steering_inference_tau is not None and (not math.isfinite(self.steering_inference_tau) or self.steering_inference_tau <= 0):
             raise ValueError('steering_inference_tau must be finite and positive')
+        if self.amplification_token_budget < 0:
+            raise ValueError('amplification_token_budget must be nonnegative; zero means continuous')
         if self.steering_start_layer < -1:
             raise ValueError('steering_start_layer must be -1 or a layer index')
         if self.steps < 1 or self.batch_size < 1 or self.max_length < 2:

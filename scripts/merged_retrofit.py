@@ -123,6 +123,7 @@ def main():
     state = torch.load(source,map_location='cpu',weights_only=True)
     state['config'].update(steering_mode='layer',steering_tau=cfg.steering_tau,
         steering_inference_tau=cfg.steering_inference_tau,
+        amplification_token_budget=cfg.amplification_token_budget,
         steering_start_layer=cfg.steering_start_layer,suppression_strength=cfg.suppression_strength)
     baseline = out/'before-layer.pt'
     if not baseline.exists(): torch.save(state,baseline)

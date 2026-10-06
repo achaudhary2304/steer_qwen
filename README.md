@@ -443,3 +443,10 @@ loss and losses averaged over a small number of injected states. The extra
 local LM objective is our AR retrofit adaptation, not Steerling's published
 loss. It must pass matched semantic and fluency tests before replacing the
 larger recipe.
+
+The diagnostic also supports `--amplification-token-budget 8`: amplify only
+during the first eight generated tokens, then continue through the same model
+without injection. Zero preserves continuous amplification. Suppression is
+unchanged. This is an experimental autoregressive control schedule, not
+Steerling's masked-diffusion inference procedure; compare it against continuous
+injection using the same checkpoint, prompts, strength, and decoding.

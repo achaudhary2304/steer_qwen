@@ -185,6 +185,13 @@ class SteeringTrainingTests(unittest.TestCase):
             self.assertEqual(calibrated['training_tau'],.1)
             self.assertEqual(calibrated['tau'],.02)
             self.assertEqual(calibrated['examples'][2]['injection_tau'],.02)
+            from unittest.mock import patch
+            burst_cfg = replace(calibrated_cfg,amplification_token_budget=1)
+            with patch.object(trained,'inject',wraps=trained.inject) as calls:
+                generate_with_model(burst_cfg,trained_corpus,trained,trained_tokenizer,module,
+                                    root/'burst.json',max_new_tokens=3,prompts=['a story'])
+            burst = json.loads((root/'burst.json').read_text())
+            self.assertEqual(calls.call_count,1+burst['examples'][3]['new_tokens'])
             self.assertFalse(any(b._forward_pre_hooks for b in trained.backbone.layers))
 
 
