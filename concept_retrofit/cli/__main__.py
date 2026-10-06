@@ -31,6 +31,12 @@ def main() -> None:
     prepare.add_argument('--max-length', type=int, default=256)
     judge = subcommands.add_parser('judge', help='score saved periodic steering examples through Groq')
     judge.add_argument('--diagnostics', required=True, help='one tokens-XXXXXXXXX directory')
+    content = subcommands.add_parser('content-steer', help='standalone content steering audit and Groq judging')
+    content.add_argument('--data', required=True)
+    content.add_argument('--checkpoint', required=True)
+    content.add_argument('--out', required=True)
+    content.add_argument('--concepts', default='Music,Home cooking,Astronomy,Computer Science')
+    content.add_argument('--max-new-tokens', type=int, default=96)
     for name in ('probe', 'train', 'evaluate', 'steer', 'run-all'):
         command = subcommands.add_parser(name)
         command.add_argument('--data', required=True)
@@ -64,6 +70,9 @@ def main() -> None:
         print(f"report: {args.out}")
         if not report.passed:
             raise SystemExit(1)
+    elif args.command == 'content-steer':
+        from concept_retrofit.evaluation.content_steering import run
+        run(args.data, args.checkpoint, args.out, [n.strip() for n in args.concepts.split(',')], args.max_new_tokens)
     elif args.command == 'judge':
         from concept_retrofit.evaluation.judge import judge_folder
         judge_folder(args.diagnostics)

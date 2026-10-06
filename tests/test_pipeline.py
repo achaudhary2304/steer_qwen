@@ -45,6 +45,31 @@ def fixture(directory):
 
 
 class PipelineTests(unittest.TestCase):
+    def test_standalone_content_audit_snapshots_checkpoint_and_records_activations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            data, model_path = fixture(directory)
+            manifest_path = data / 'manifest.json'
+            manifest = json.loads(manifest_path.read_text())
+            for metadata in manifest['concepts']:
+                metadata.update(concept_type='content', description='A test topic.')
+            manifest_path.write_text(json.dumps(manifest))
+            cfg = RunConfig(model=str(model_path), revision=None, device='cpu', steps=2,
+                evaluate_every=1, evaluation_documents=4, unknown_features=8,
+                unknown_rank=4, known_topk=1, unknown_topk=2, max_length=16,
+                maximum_nll_increase=100, maximum_validation_kl=100)
+            checkpoint = train_stage(data, Path(directory) / 'trained', cfg)
+            from concept_retrofit.evaluation.content_steering import run
+            output = Path(directory) / 'content-audit'
+            with patch('concept_retrofit.evaluation.content_steering.judge_folder', return_value={}):
+                run(data, checkpoint, output, [manifest['concepts'][0]['name']], max_new_tokens=2)
+            self.assertTrue((output / 'checkpoint.pt').exists())
+            self.assertEqual(json.loads((output / 'audit.json').read_text())['state'], 'complete')
+            samples = json.loads((output / 'steering-concept-0.json').read_text())['examples']
+            self.assertEqual(len(samples), 8)
+            for item in samples:
+                if item['condition'] != 'base':
+                    self.assertTrue(0 <= item['factual_topk_active_fraction'] <= 1)
+
     def test_real_qwen_end_to_end_and_teacher_invariance(self):
         with tempfile.TemporaryDirectory() as directory:
             data, model_path = fixture(directory)

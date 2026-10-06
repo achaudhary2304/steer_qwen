@@ -205,6 +205,22 @@ benchmark. A different judge/rubric does not reproduce Steerling's reported
 numbers. External capability benchmarks and activation-steering comparisons
 remain separate work.
 
+For a separate content-concept audit with longer outputs:
+
+```bash
+python -u -m concept_retrofit.cli content-steer --data data/atlas-100m \
+  --checkpoint runs/100m/experiment/frozen/last.pt \
+  --out runs/100m/content-audit --max-new-tokens 96 \
+  --concepts 'Music,Home cooking,Astronomy,Computer Science'
+```
+
+This copies the checkpoint to a fixed snapshot, generates all four conditions
+for a neutral and a topic-specific prompt per concept, records factual concept
+scores/top-k activation rates, and judges outputs through Groq. It does not stop
+the trainer, but running concurrently uses additional RAM/VRAM and shares GPU
+time. Use a fresh output folder for each audit. Judge errors can be retried with
+the `judge` command above, without regenerating text.
+
 The test reports contain teacher/base and retrofit perplexity, KL, annotation
 AUC/AP, named/unknown/residual logit shares, and post-hoc linear leakage probes.
 Saved steering outputs include base, retrofit, amplification, and suppression.

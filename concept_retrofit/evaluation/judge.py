@@ -128,7 +128,7 @@ def summarize(records, model):
         'skipped_groups': sum(r['state'] == 'skipped' for r in records),
         'scores_by_condition': {}, 'caveats': [
             'LLM-judged, not human ground truth; not directly comparable to a different judge/rubric.',
-            'Small monitoring sample; 32-token outputs can be truncated.',
+            'Small monitoring sample; token-limited outputs can be truncated.',
             'Success means a positive direction change on a 0-4 rubric, not a full benchmark.',
             'Suppression success is calculated only when unsteered target_presence > 0.']}
     for condition in ('base', 'retrofit', 'amplify', 'suppress'):
